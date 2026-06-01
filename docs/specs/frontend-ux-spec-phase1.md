@@ -1,61 +1,33 @@
-# Frontend UX Spec - Phase 1 Manual Lane Simulator
+# Frontend UX Spec - Phase 1 Manual Lane Simulator (Flask/Jinja)
 
 ## Goal
-Help ops users visualize spot-bid workflow behavior per lane using dummy data before live integrations are built.
+Provide a professional brokerage-style portal using server-rendered Flask templates with minimal vanilla JS interactions.
 
 ## Main Screens
-1. Lane Intake Form
-2. Active Lanes Board
-3. Lane Detail Activity View
-4. Carrier CRM View
+1. Portal shell with left nav tabs: Active Lanes, Completed, Carrier CRM
+2. Lane table workspace
+3. Right-side lane detail drawer
 
-## Lane Intake Form
-Fields:
-1. Origin city/state/zip
-2. Destination city/state/zip
-3. Stops repeater (add/remove)
-4. Equipment type
-5. Pickup date (optional)
+## Active/Completed Lane UX
+1. Shipment-style lane table with lane/equipment/pickup/contacted/responded/status columns.
+2. Clicking a row opens the right detail drawer.
+3. Drawer hidden until lane is selected.
 
-Validation:
-1. Origin and destination are required.
-2. Equipment type is required.
-3. Stops are optional.
+## Detail Drawer UX
+1. Header with lane summary and status selector.
+2. Tabs:
+- Overview
+- Carrier Responses
+- Activity Log
+3. Overview shows channel overview cards and response summary.
+4. Carrier Responses shows channel filters + responded carriers list + communication history.
+5. Carrier Details toggle shows MC number, email, and contact number.
 
-## Active Lanes Board
-Each lane card/tab displays:
-1. Origin -> Destination
-2. Equipment
-3. Status badge
-4. Last updated time
-5. Quick metrics preview (sent/responded)
+## Carrier CRM Tab
+1. Full carrier profile table.
+2. Uses lane-selected context to render snapshot history.
 
-## Lane Detail Activity View
-Sections:
-1. KPI strip (email/sms/whatsapp and responses)
-2. Activity timeline
-3. Channel performance table
-4. Carrier response list
-
-## Carrier CRM View
-Table columns:
-1. Carrier
-2. Times contacted
-3. Times responded
-4. Response rate
-5. Average response time
-6. Preferred channel
-7. Last contacted
-
-## Empty and Loading States
-1. Empty lanes:
-- show CTA: "Create your first lane"
-2. Loading:
-- skeleton cards and tables
-3. No CRM data:
-- show friendly empty message
-
-## Phase 1 UX Success Criteria
-1. User can create lane in under 30 seconds.
-2. User can open lane details in one click.
-3. User can quickly understand channel performance and carrier responsiveness.
+## UX Success Criteria
+1. Full-width responsive layout (no fixed root-width constraints).
+2. No clipped/overlapping content in drawer/cards.
+3. Drawer interactions and filters remain stable on desktop/tablet/mobile.

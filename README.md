@@ -16,11 +16,10 @@ AI-assisted spot bid automation for freight loads tagged `#spotbid` in Turvo.
 - `docs/data-model.md`: Initial schema design.
 - `docs/runbooks/`: Operational runbooks.
 - `docs/adr/`: Architecture decision records.
-- `backend/`: FastAPI service and logging foundation.
-- `frontend/`: Placeholder for React dashboard app.
+- `backend/`: Flask monolith (SSR + internal JSON APIs), DB models, services, and tests.
 
 ## Recommended Stack
-- Backend: `Python`, `FastAPI`, `LangGraph`
+- Backend/UI: `Python`, `Flask`, `Jinja`, minimal vanilla JS, `LangGraph`
 - Queue/cache: `Redis` + worker
 - DB: `PostgreSQL (AWS RDS/Aurora)`
 - Comms: `Resend` + `Twilio (SMS + WhatsApp)`
@@ -29,7 +28,7 @@ AI-assisted spot bid automation for freight loads tagged `#spotbid` in Turvo.
 ## Local Setup (Planned)
 1. Copy `.env.example` to `.env`.
 2. Install backend dependencies.
-3. Start API and worker.
+3. Start Flask app.
 4. Configure webhooks in Turvo, Resend, Twilio.
 
 ## Logging Recommendation

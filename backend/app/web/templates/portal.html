@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spot Bid Portal</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('portal_web.static', filename='portal.css') }}"
+    />
+  </head>
+  <body>
+    <div class="portal-shell">
+      <aside class="left-nav">
+        <div class="brand">
+          <div class="brand-mark">SB</div>
+          <div>
+            <div class="brand-title">Spot Bid Portal</div>
+            <div class="brand-subtitle">Lane operations console</div>
+          </div>
+        </div>
+        <nav class="left-tabs">
+          <button class="left-tab active" data-tab="active">Active Lanes</button>
+          <button class="left-tab" data-tab="completed">Completed</button>
+          <button class="left-tab" data-tab="crm">Carrier CRM</button>
+        </nav>
+      </aside>
+
+      <main class="content-area">
+        <section id="lane-workspace" class="lanes-workspace">
+          <header class="workspace-header">
+            <div>
+              <h1 id="workspace-title">Active Lanes</h1>
+              <p>Track outreach and carrier responses by lane.</p>
+            </div>
+            <button class="btn-primary" id="open-lane-form">Add Lane</button>
+          </header>
+
+          <div class="table-wrap">
+            <table class="shipment-table">
+              <thead>
+                <tr>
+                  <th>Lane</th>
+                  <th>Equipment</th>
+                  <th>Pickup Date</th>
+                  <th>Contacted</th>
+                  <th>Responded</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="lanes-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="crm-workspace" class="lanes-workspace hidden">
+          <header class="workspace-header">
+            <div>
+              <h1>Carrier CRM</h1>
+              <p>Carrier profile history and communication preferences.</p>
+            </div>
+          </header>
+          <div class="table-wrap">
+            <table class="shipment-table">
+              <thead>
+                <tr>
+                  <th>Carrier</th>
+                  <th>Contacted</th>
+                  <th>Responded</th>
+                  <th>Rate</th>
+                  <th>Preferred Channel</th>
+                  <th>Last Contact</th>
+                </tr>
+              </thead>
+              <tbody id="crm-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+
+      <aside id="drawer" class="detail-drawer hidden">
+        <div class="detail-drawer-head">
+          <button class="drawer-close" id="close-drawer">×</button>
+        </div>
+        <div id="drawer-content"></div>
+      </aside>
+    </div>
+
+    <dialog id="lane-dialog">
+      <form id="lane-form" class="lane-form" method="dialog">
+        <h2>Create Lane</h2>
+        <div class="form-grid">
+          <label>Origin City <input required name="origin_city" /></label>
+          <label>Origin State <input required name="origin_state" maxlength="2" /></label>
+          <label>Destination City <input required name="destination_city" /></label>
+          <label>Destination State <input required name="destination_state" maxlength="2" /></label>
+          <label>Equipment
+            <select name="equipment_type" required>
+              <option value="dry_van">Dry Van</option>
+              <option value="reefer">Reefer</option>
+              <option value="flatbed">Flatbed</option>
+              <option value="power_only">Power Only</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>Pickup Date <input type="date" name="pickup_date" /></label>
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn-primary">Create</button>
+          <button type="button" id="cancel-lane" class="btn-secondary">Cancel</button>
+        </div>
+        <p id="lane-form-error" class="form-error hidden"></p>
+      </form>
+    </dialog>
+
+    <script src="{{ url_for('portal_web.static', filename='portal.js') }}"></script>
+  </body>
+</html>

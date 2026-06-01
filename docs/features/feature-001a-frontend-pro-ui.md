@@ -1,7 +1,7 @@
 # Feature 001A - Professional Frontend Redesign (Manual Lane Simulator)
 
 ## Goal
-Redesign the portal UI to a professional brokerage-style experience using the current manual-lane dummy-data workflow.
+Redesign the portal UI to a professional brokerage-style experience using Flask/Jinja with manual-lane dummy-data workflow.
 
 ## Reference Inputs
 Use these reference images:
@@ -27,14 +27,13 @@ Clicking a lane opens right-side detail panel/drawer.
 ## Lane Detail Panel UX
 Top section:
 1. Lane id / route summary
-2. Status (`active`, `covered`, `completed`)
+2. Status (`active`, `completed`)
 3. Assignee and quick actions
 
 Tabs/sections:
 1. `Overview`
-2. `Outreach`
-3. `Carrier Responses`
-4. `Activity Log`
+2. `Carrier Responses`
+3. `Activity Log`
 
 Required content:
 1. Contact metrics:
@@ -51,9 +50,9 @@ Required content:
 - chat/message history snippet
 3. Timeline with latest events first.
 
-## Covered/Completed Flow
-1. Human can set lane status to `covered`.
-2. Covered/completed lanes should appear in a separate section/tab in Active Lanes.
+## Active/Completed Flow
+1. Human can set lane status to `completed`.
+2. Completed lanes should appear in the `Completed` tab.
 3. Status changes must be reflected in list and detail panel.
 
 ## Carrier CRM Tab UX

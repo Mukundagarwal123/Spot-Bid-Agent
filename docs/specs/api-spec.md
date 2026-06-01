@@ -15,6 +15,13 @@
 4. `POST /webhooks/twilio/inbound`
 - Inbound replies from SMS/WhatsApp.
 
+## SSR Web Routes
+1. `GET /`
+- Renders the Spot Bid portal UI shell.
+
+2. `GET /portal`
+- Alias route that renders the same portal UI shell.
+
 ## Internal API Endpoints
 1. `GET /loads/{load_id}/activity`
 - Returns dashboard summary + timeline.
