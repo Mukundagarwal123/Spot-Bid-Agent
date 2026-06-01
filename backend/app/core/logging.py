@@ -1,4 +1,5 @@
 import base64
+import contextvars
 import json
 import logging
 import queue
@@ -7,9 +8,12 @@ from typing import Any
 
 import httpx
 import structlog
-from asgi_correlation_id import correlation_id
 
 from app.core.settings import settings
+
+correlation_id_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "correlation_id", default=None
+)
 
 
 class LokiLogHandler(logging.Handler):
@@ -117,7 +121,7 @@ def configure_logging() -> None:
 def _inject_correlation_id(
     logger: Any, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
-    cid = correlation_id.get()
+    cid = correlation_id_var.get()
     if cid:
         event_dict["correlation_id"] = cid
     return event_dict

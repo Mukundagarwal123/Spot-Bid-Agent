@@ -112,8 +112,8 @@ Create an implementation plan only (no code) for Feature 001:
 
 Constraints:
 - No Turvo, no webhooks, no live provider integrations yet.
-- Backend: FastAPI
-- Frontend: React
+- Backend: Flask
+- Frontend: Flask Jinja templates + vanilla JS
 - Data can be persisted locally in DB with deterministic dummy simulation.
 
 Deliver:
@@ -131,3 +131,4 @@ Deliver:
 2. Lane detail screen shows realistic simulated agent activity.
 3. Carrier CRM screen shows simulated historical engagement stats.
 4. Docs are updated for next feature transition to real integrations.
+

@@ -23,9 +23,9 @@ MVP with dummy data in frontend first, then replace data source components incre
 
 ## Target Stack (Current)
 - `Python` backend
-- `FastAPI` APIs and webhooks
+- `Flask` monolith app
 - `LangGraph` for workflow orchestration
-- `React` frontend
+- `Jinja` + minimal vanilla JS frontend
 - `AWS` infrastructure + database services
 - `Resend` for email
 - `Twilio` for SMS + WhatsApp
@@ -52,5 +52,5 @@ MVP with dummy data in frontend first, then replace data source components incre
 ## Build Rules for Contributors
 - Keep modules small and testable.
 - Add tests for orchestration transitions and idempotency edge cases.
-- Prefer typed interfaces (Pydantic/TypeScript types) across boundaries.
+- Prefer typed interfaces (Pydantic/dataclass types) across boundaries.
 - Never hardcode secrets; use environment variables and a secret manager.

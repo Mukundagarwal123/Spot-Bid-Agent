@@ -1,11 +1,11 @@
 # Infra and Tools Spec - Spot Bid Agent
 
 ## Recommended Core Stack
-- Backend: `Python 3.12`, `FastAPI`, `Uvicorn`
+- Backend: `Python 3.12`, `Flask`, `Gunicorn`
 - Orchestration: `LangGraph`
 - Queue/Cache: `Redis` + worker framework (`RQ` or `Celery`)
 - Database: `PostgreSQL` (AWS RDS/Aurora)
-- Frontend: `React` + `TypeScript` + `Vite`
+- Frontend: `Flask Jinja templates` + minimal `vanilla JS`
 - Observability: `OpenTelemetry`, `Prometheus`, `Grafana`, `Sentry`
 
 ## AWS Recommendation
@@ -31,8 +31,7 @@
 - Linting: `ruff`
 - Typing: `mypy`
 - Tests: `pytest`
-- API schema docs: OpenAPI from FastAPI
-- Frontend quality: `eslint`, `prettier`, `vitest`
+- API schema docs: manually maintained endpoint docs (or Flask-compatible OpenAPI tooling later)
 
 ## CI/CD
 - GitHub Actions:

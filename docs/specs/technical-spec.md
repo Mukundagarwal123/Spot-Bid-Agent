@@ -1,11 +1,11 @@
 # Technical Spec - Spot Bid Agent
 
 ## Architecture Overview
-- `FastAPI` service receives Turvo events and exposes internal APIs.
+- `Flask` monolith receives Turvo/manual events, renders portal pages, and exposes internal JSON APIs.
 - `LangGraph` orchestrates per-load workflow state transitions.
 - Async workers process outreach and callback events.
 - Event store captures every communication event.
-- React UI reads aggregated load activity from API.
+- Jinja + vanilla JS UI reads aggregated load activity from JSON API endpoints.
 
 ## Why LangGraph
 LangGraph is a strong choice because you expect concurrent workflows and stateful transitions. It gives explicit state graphs, recoverability, and easier branching for retries/escalations.
