@@ -1,4 +1,4 @@
-const state = {
+﻿const state = {
   tab: "active",
   lanes: [],
   selectedLaneId: null,
@@ -403,8 +403,10 @@ async function onCreateLane(event) {
   const payload = {
     origin_city: fd.get("origin_city"),
     origin_state: fd.get("origin_state"),
+    origin_zip: fd.get("origin_zip"),
     destination_city: fd.get("destination_city"),
     destination_state: fd.get("destination_state"),
+    destination_zip: fd.get("destination_zip"),
     equipment_type: fd.get("equipment_type"),
     pickup_date: fd.get("pickup_date") || null,
     stops: [],
@@ -422,7 +424,14 @@ async function onCreateLane(event) {
     els.laneForm.reset();
     render();
   } catch (err) {
-    els.laneFormError.textContent = "Failed to create lane. Please check values.";
+    const detail = err?.payload?.detail;
+    if (Array.isArray(detail) && detail.length) {
+      els.laneFormError.textContent = detail
+        .map((item) => item?.msg || "Invalid value")
+        .join(" ");
+    } else {
+      els.laneFormError.textContent = "Failed to create lane. Please check values.";
+    }
     els.laneFormError.classList.remove("hidden");
   }
 }

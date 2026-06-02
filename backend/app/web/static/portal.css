@@ -124,6 +124,13 @@ dialog#lane-dialog { border:none; border-radius: 12px; padding: 0; width: min(74
 .form-actions { display:flex; gap:8px; margin-top:12px; }
 .form-error { color:#b91c1c; margin:8px 0 0; font-size:12px; }
 
+.recs-loading { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.rec-skeleton { height:36px; border-radius:6px; background:linear-gradient(90deg,#eef3f7 25%,#dce8f0 50%,#eef3f7 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; }
+@keyframes shimmer { 0%{background-position:200% 0} 100%{background-position:-200% 0} }
+.lane-pill.pill-error { background:#fef2f2; color:#b91c1c; }
+.shipment-table a { color:#3366ff; text-decoration:none; }
+.shipment-table a:hover { text-decoration:underline; }
+
 @media (max-width: 1280px) {
   .detail-drawer { width: min(640px, 62vw); min-width: 420px; }
 }

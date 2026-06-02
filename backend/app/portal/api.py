@@ -3,11 +3,13 @@ from __future__ import annotations
 import uuid
 
 import structlog
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from pydantic import ValidationError
 
 from app.db.base import session_scope
 from app.portal import service
+from app.portal.carriers.schemas import CarrierRecommendationRequest
+from app.portal.carriers.service import get_internal_turvo_recommendations
 from app.portal.schemas import (
     CarrierCRMItem,
     CarrierCRMResponse,
@@ -46,10 +48,58 @@ def _validation_error(exc: ValidationError):
 @portal_api_bp.post("/lanes")
 def create_lane():
     payload = request.get_json(silent=True) or {}
+    logger.info(
+        "lane.create.request_received",
+        origin_city=payload.get("origin_city"),
+        origin_state=payload.get("origin_state"),
+        origin_zip=payload.get("origin_zip"),
+        destination_city=payload.get("destination_city"),
+        destination_state=payload.get("destination_state"),
+        destination_zip=payload.get("destination_zip"),
+        source="source_1_internal_turvo",
+    )
     try:
         req = LaneCreateRequest.model_validate(payload)
     except ValidationError as exc:
         return _validation_error(exc)
+
+    missing_fields: list[str] = []
+    if not req.origin_zip:
+        missing_fields.append("origin_zip")
+    if not req.destination_zip:
+        missing_fields.append("destination_zip")
+    if missing_fields:
+        logger.warning(
+            "lane.create.validation_failed",
+            missing_fields=missing_fields,
+            source="source_1_internal_turvo",
+        )
+        return (
+            jsonify(
+                {
+                    "detail": [
+                        {
+                            "loc": ["body", field],
+                            "msg": f"{field} is required",
+                            "type": "value_error",
+                        }
+                        for field in missing_fields
+                    ]
+                }
+            ),
+            422,
+        )
+
+    logger.info(
+        "lane.create.validated",
+        origin_city=req.origin_city,
+        origin_state=req.origin_state,
+        origin_zip=req.origin_zip,
+        destination_city=req.destination_city,
+        destination_state=req.destination_state,
+        destination_zip=req.destination_zip,
+        source="source_1_internal_turvo",
+    )
 
     with session_scope() as db:
         lane = service.create_lane(db, req)
@@ -58,6 +108,42 @@ def create_lane():
             label=service.make_label(lane),
             status=lane.status,
             created_at=lane.created_at,
+        )
+
+    if lane.origin_zip and lane.destination_zip:
+        request_id = getattr(g, "correlation_id", "")
+        carrier_request = CarrierRecommendationRequest(
+            origin_city=lane.origin_city,
+            origin_state=lane.origin_state,
+            origin_zip=lane.origin_zip,
+            destination_city=lane.destination_city,
+            destination_state=lane.destination_state,
+            destination_zip=lane.destination_zip,
+        )
+        try:
+            carrier_response = get_internal_turvo_recommendations(carrier_request, request_id=request_id)
+            logger.info(
+                "lane.source_1_carriers_loaded",
+                lane_id=str(lane.id),
+                request_id=request_id,
+                carrier_count=len(carrier_response.carriers),
+                source="turvo_internal",
+            )
+        except Exception as exc:
+            logger.warning(
+                "lane.source_1_carriers_failed",
+                lane_id=str(lane.id),
+                request_id=request_id,
+                error=str(exc),
+                source="turvo_internal",
+            )
+    else:
+        logger.info(
+            "lane.source_1_skipped_missing_zip",
+            lane_id=str(lane.id),
+            origin_zip=lane.origin_zip,
+            destination_zip=lane.destination_zip,
+            source="turvo_internal",
         )
     return jsonify(response.model_dump(mode="json")), 201
 

@@ -13,6 +13,13 @@ app/portal/api.py
 app/portal/dummy_generator.py
 app/portal/schemas.py
 app/portal/service.py
+app/portal/carriers/__init__.py
+app/portal/carriers/routes.py
+app/portal/carriers/schemas.py
+app/portal/carriers/service.py
+app/portal/carriers/source_1_internal_turvo/__init__.py
+app/portal/carriers/source_1_internal_turvo/db.py
+app/portal/carriers/source_1_internal_turvo/turvo_client.py
 app/web/__init__.py
 app/web/routes.py
 spot_bid_agent_backend.egg-info/PKG-INFO
@@ -20,5 +27,6 @@ spot_bid_agent_backend.egg-info/SOURCES.txt
 spot_bid_agent_backend.egg-info/dependency_links.txt
 spot_bid_agent_backend.egg-info/requires.txt
 spot_bid_agent_backend.egg-info/top_level.txt
+tests/test_carrier_recommendations.py
 tests/test_dummy_generator.py
 tests/test_portal_endpoints.py

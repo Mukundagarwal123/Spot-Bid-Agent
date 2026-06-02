@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
+from unittest.mock import patch
 
 _VALID = {
     "origin_city": "Chicago",
     "origin_state": "IL",
+    "origin_zip": "60601",
     "destination_city": "Dallas",
     "destination_state": "TX",
+    "destination_zip": "75201",
     "equipment_type": "dry_van",
     "stops": [],
 }
@@ -38,6 +42,14 @@ def test_create_lane_returns_201(client) -> None:
     assert r.status_code == 201
 
 
+@patch("app.portal.api.get_internal_turvo_recommendations")
+def test_create_lane_triggers_source1(mock_source1, client) -> None:
+    mock_source1.return_value = SimpleNamespace(carriers=[1, 2, 3])
+    r = client.post("/portal/lanes", json=_VALID)
+    assert r.status_code == 201
+    assert mock_source1.called
+
+
 def test_create_lane_response_shape(client) -> None:
     r = client.post("/portal/lanes", json=_VALID)
     data = _json(r)
@@ -53,6 +65,16 @@ def test_create_lane_missing_origin_city_422(client) -> None:
 
 def test_create_lane_invalid_equipment_422(client) -> None:
     assert client.post("/portal/lanes", json={**_VALID, "equipment_type": "spaceship"}).status_code == 422
+
+
+def test_create_lane_missing_origin_zip_422(client) -> None:
+    payload = {k: v for k, v in _VALID.items() if k != "origin_zip"}
+    assert client.post("/portal/lanes", json=payload).status_code == 422
+
+
+def test_create_lane_missing_destination_zip_422(client) -> None:
+    payload = {k: v for k, v in _VALID.items() if k != "destination_zip"}
+    assert client.post("/portal/lanes", json=payload).status_code == 422
 
 
 def test_create_lane_with_stops(client) -> None:

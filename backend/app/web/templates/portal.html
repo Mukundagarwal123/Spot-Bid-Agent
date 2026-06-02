@@ -93,8 +93,10 @@
         <div class="form-grid">
           <label>Origin City <input required name="origin_city" /></label>
           <label>Origin State <input required name="origin_state" maxlength="2" /></label>
+          <label>Origin Zip <input required name="origin_zip" maxlength="5" pattern="\d{5}" placeholder="75001" /></label>
           <label>Destination City <input required name="destination_city" /></label>
           <label>Destination State <input required name="destination_state" maxlength="2" /></label>
+          <label>Destination Zip <input required name="destination_zip" maxlength="5" pattern="\d{5}" placeholder="85001" /></label>
           <label>Equipment
             <select name="equipment_type" required>
               <option value="dry_van">Dry Van</option>
