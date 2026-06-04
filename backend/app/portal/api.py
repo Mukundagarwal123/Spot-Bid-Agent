@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+import json
+import threading
 import uuid
 
 import structlog
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from pydantic import ValidationError
 
 from app.db.base import session_scope
+from app.db.models import PortalLane
 from app.portal import service
+from app.portal.carriers import dat_service
+from app.portal.carriers.dat_schemas import DatImportRequest
 from app.portal.carriers.schemas import CarrierRecommendationRequest
 from app.portal.carriers.service import get_internal_turvo_recommendations
+from app.portal.carriers.source_2_dat.parser import DatParseError
 from app.portal.schemas import (
     CarrierCRMItem,
     CarrierCRMResponse,
@@ -28,6 +34,49 @@ from app.portal.schemas import (
 portal_api_bp = Blueprint("portal_api", __name__, url_prefix="/portal")
 logger = structlog.get_logger(__name__)
 
+
+def _run_background(fn, *args, **kwargs) -> None:
+    """Run fn(*args, **kwargs) in a daemon thread with the Flask app context."""
+    app = current_app._get_current_object()
+
+    def _wrapper():
+        with app.app_context():
+            try:
+                fn(*args, **kwargs)
+            except Exception as exc:
+                logger.error("background_task_error", task=fn.__name__, error=str(exc))
+
+    threading.Thread(target=_wrapper, daemon=True).start()
+
+
+def _bg_fetch_internal_carriers(
+    lane_id_str: str,
+    carrier_request: CarrierRecommendationRequest,
+    request_id: str,
+) -> None:
+    carrier_response = get_internal_turvo_recommendations(carrier_request, request_id=request_id)
+    logger.info(
+        "lane.source_1_carriers_loaded",
+        lane_id=lane_id_str,
+        request_id=request_id,
+        carrier_count=len(carrier_response.carriers),
+        source="turvo_internal",
+    )
+    if carrier_response.carriers:
+        with session_scope() as db:
+            dat_service.save_internal_carriers(
+                db, uuid.UUID(lane_id_str), carrier_response.carriers
+            )
+
+
+def _bg_process_dat_import(
+    lane_id: uuid.UUID,
+    raw_text: str,
+    request_id: str,
+) -> None:
+    with session_scope() as db:
+        dat_service.create_dat_import(db, lane_id, raw_text, request_id)
+
 _ZERO_METRICS = MetricsSnapshot(
     emails_sent=0,
     emails_clicked=0,
@@ -42,7 +91,7 @@ _ZERO_METRICS = MetricsSnapshot(
 
 
 def _validation_error(exc: ValidationError):
-    return jsonify({"detail": exc.errors()}), 422
+    return jsonify({"detail": json.loads(exc.json())}), 422
 
 
 @portal_api_bp.post("/lanes")
@@ -101,6 +150,8 @@ def create_lane():
         source="source_1_internal_turvo",
     )
 
+    request_id = getattr(g, "correlation_id", "")
+
     with session_scope() as db:
         lane = service.create_lane(db, req)
         response = LaneCreatedResponse(
@@ -111,7 +162,6 @@ def create_lane():
         )
 
     if lane.origin_zip and lane.destination_zip:
-        request_id = getattr(g, "correlation_id", "")
         carrier_request = CarrierRecommendationRequest(
             origin_city=lane.origin_city,
             origin_state=lane.origin_state,
@@ -120,23 +170,8 @@ def create_lane():
             destination_state=lane.destination_state,
             destination_zip=lane.destination_zip,
         )
-        try:
-            carrier_response = get_internal_turvo_recommendations(carrier_request, request_id=request_id)
-            logger.info(
-                "lane.source_1_carriers_loaded",
-                lane_id=str(lane.id),
-                request_id=request_id,
-                carrier_count=len(carrier_response.carriers),
-                source="turvo_internal",
-            )
-        except Exception as exc:
-            logger.warning(
-                "lane.source_1_carriers_failed",
-                lane_id=str(lane.id),
-                request_id=request_id,
-                error=str(exc),
-                source="turvo_internal",
-            )
+        _run_background(_bg_fetch_internal_carriers, str(lane.id), carrier_request, request_id)
+        logger.info("lane.source_1_carriers_queued", lane_id=str(lane.id), source="turvo_internal")
     else:
         logger.info(
             "lane.source_1_skipped_missing_zip",
@@ -145,6 +180,7 @@ def create_lane():
             destination_zip=lane.destination_zip,
             source="turvo_internal",
         )
+
     return jsonify(response.model_dump(mode="json")), 201
 
 
@@ -226,6 +262,38 @@ def get_lane(lane_id: uuid.UUID):
                 for e in detail.timeline
             ],
         )
+    return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.post("/lanes/<uuid:lane_id>/dat-imports")
+def create_dat_import(lane_id: uuid.UUID):
+    payload = request.get_json(silent=True) or {}
+    request_id = getattr(g, "correlation_id", "")
+
+    try:
+        req = DatImportRequest.model_validate(payload)
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    # Quick synchronous check — lane must exist before we accept the job
+    with session_scope() as db:
+        if db.query(PortalLane).filter_by(id=lane_id).first() is None:
+            return jsonify({"detail": "Lane not found"}), 404
+
+    # Fire LLM parsing in background and return immediately
+    _run_background(_bg_process_dat_import, lane_id, req.raw_text, request_id)
+    logger.info("dat_import_queued", lane_id=str(lane_id), request_id=request_id, source="dat")
+
+    return jsonify({"lane_id": str(lane_id), "source": "dat", "status": "processing"}), 202
+
+
+@portal_api_bp.get("/lanes/<uuid:lane_id>/carrier-records")
+def get_carrier_records(lane_id: uuid.UUID):
+    source_type = request.args.get("source")
+    with session_scope() as db:
+        response = dat_service.get_carrier_records(db, lane_id, source_type)
+        if response is None:
+            return jsonify({"detail": "Lane not found"}), 404
     return jsonify(response.model_dump(mode="json"))
 
 

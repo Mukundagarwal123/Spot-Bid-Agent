@@ -116,6 +116,33 @@
       </form>
     </dialog>
 
+    <dialog id="dat-prompt-dialog">
+      <div class="lane-form" style="min-width:480px;max-width:640px">
+        <h2>Import DAT Carrier Data</h2>
+        <div id="dat-step-1">
+          <p style="margin-bottom:1.5rem;color:#475467">Do you want to import DAT carrier data for this lane?</p>
+          <div class="form-actions">
+            <button id="dat-yes-btn" class="btn-primary">Yes, paste DAT data</button>
+            <button id="dat-no-btn" class="btn-secondary">No, skip</button>
+          </div>
+        </div>
+        <div id="dat-step-2" class="hidden">
+          <p style="margin-bottom:.75rem;color:#475467;font-size:.875rem">Copy text directly from DAT and paste below.</p>
+          <textarea
+            id="dat-paste-area"
+            rows="12"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:.8rem;padding:.5rem .75rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
+            placeholder="Paste DAT text here..."
+          ></textarea>
+          <div id="dat-result-msg" class="hidden" style="margin:.75rem 0;padding:.5rem .75rem;border-radius:6px;font-size:.85rem"></div>
+          <div class="form-actions" style="margin-top:1rem">
+            <button id="dat-submit-btn" class="btn-primary">Parse and Save</button>
+            <button id="dat-back-btn" class="btn-secondary">Back</button>
+          </div>
+        </div>
+      </div>
+    </dialog>
+
     <script src="{{ url_for('portal_web.static', filename='portal.js') }}"></script>
   </body>
 </html>

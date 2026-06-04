@@ -38,6 +38,12 @@ def create_app() -> Flask:
 
     create_tables()
     logger.info("startup", env=settings.app_env, db=settings.database_url)
+    logger.info(
+        "startup.llm_config",
+        llm_base_url=settings.llm_base_url,
+        llm_model=settings.llm_model,
+        llm_api_key_set=bool(settings.llm_api_key),
+    )
 
     app.register_blueprint(portal_web_bp)
     app.register_blueprint(portal_api_bp)

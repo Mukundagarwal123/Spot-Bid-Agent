@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, Date, Float, ForeignKey, Integer, String
+from sqlalchemy import DateTime, Date, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 try:
@@ -97,3 +97,44 @@ class PortalCarrierCRMSnapshot(Base):
     preferred_channel: Mapped[str] = mapped_column(String(20), nullable=False)
     response_rate: Mapped[float] = mapped_column(Float, nullable=False)
     last_contacted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class PortalLaneCarrierSource(Base):
+    """One row per DAT/internal import event for a lane."""
+
+    __tablename__ = "portal_lane_carrier_sources"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parsed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ok")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class PortalLaneCarrierRecord(Base):
+    """Individual carrier row extracted from an import source."""
+
+    __tablename__ = "portal_lane_carrier_records"
+
+    __table_args__ = (Index("ix_plcr_lane_source", "lane_id", "source_type"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("portal_lane_carrier_sources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    carrier_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, default="")
+    phone: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    mc_number: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    source_notes: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)

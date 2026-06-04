@@ -2,9 +2,13 @@ from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Resolve .env from the project root regardless of where the server is started from.
+# settings.py lives at backend/app/core/settings.py → parents[3] = project root.
+_ENV_FILE = str(Path(__file__).resolve().parents[3] / ".env")
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     app_env: str = "local"
     app_name: str = "spot-bid-agent"
@@ -40,6 +44,11 @@ class Settings(BaseSettings):
 
     # Set to true in local dev to return mock carrier + email data without real Turvo credentials
     turvo_mock_carriers: bool = False
+
+    # DAT Parser LLM (OpenAI-compatible API)
+    llm_base_url: str = "https://api.theagentic.ai/v1"
+    llm_model: str = "agentic-large"
+    llm_api_key: str = ""
 
 
 settings = Settings()

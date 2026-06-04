@@ -5,11 +5,47 @@
   laneStatuses: {},
   detail: null,
   crm: [],
+  carrierRecords: { internal: [], dat: [] },
+  carrierSourceTab: "internal",
   detailTab: "overview",
   responseFilter: "all",
   selectedCarrierName: null,
   showCarrierDetails: false,
+  pendingLaneId: null,
+  datPolling: false,
 };
+
+let _datPollTimer = null;
+
+function startDatPolling(laneId) {
+  stopDatPolling();
+  let attempts = 0;
+  state.datPolling = true;
+  renderDrawer();
+  _datPollTimer = setInterval(async () => {
+    attempts++;
+    try {
+      const data = await api(`/portal/lanes/${laneId}/carrier-records`);
+      state.carrierRecords = data.sources || { internal: [], dat: [] };
+      const internalDone = (state.carrierRecords.internal || []).length > 0;
+      const datDone = (state.carrierRecords.dat || []).length > 0;
+      if ((internalDone && datDone) || attempts >= 10) {
+        stopDatPolling();
+      }
+      renderDrawer();
+    } catch (_) {
+      stopDatPolling();
+    }
+  }, 3000);
+}
+
+function stopDatPolling() {
+  if (_datPollTimer) {
+    clearInterval(_datPollTimer);
+    _datPollTimer = null;
+  }
+  state.datPolling = false;
+}
 
 const equipmentLabels = {
   dry_van: "Dry Van",
@@ -34,6 +70,15 @@ const els = {
   cancelLane: document.getElementById("cancel-lane"),
   laneForm: document.getElementById("lane-form"),
   laneFormError: document.getElementById("lane-form-error"),
+  datPromptDialog: document.getElementById("dat-prompt-dialog"),
+  datStep1: document.getElementById("dat-step-1"),
+  datStep2: document.getElementById("dat-step-2"),
+  datYesBtn: document.getElementById("dat-yes-btn"),
+  datNoBtn: document.getElementById("dat-no-btn"),
+  datPasteArea: document.getElementById("dat-paste-area"),
+  datSubmitBtn: document.getElementById("dat-submit-btn"),
+  datBackBtn: document.getElementById("dat-back-btn"),
+  datResultMsg: document.getElementById("dat-result-msg"),
 };
 
 function inferStatus(raw, laneId) {
@@ -83,12 +128,21 @@ async function loadLanes() {
 
 async function loadDetailAndCrm() {
   if (!state.selectedLaneId) return;
-  const [detail, crm] = await Promise.all([
+  const [detail, crm, carrierData] = await Promise.all([
     api(`/portal/lanes/${state.selectedLaneId}`),
     api(`/portal/lanes/${state.selectedLaneId}/carrier-crm`),
+    api(`/portal/lanes/${state.selectedLaneId}/carrier-records`),
   ]);
   state.detail = detail;
   state.crm = crm.carriers || [];
+  state.carrierRecords = carrierData.sources || { internal: [], dat: [] };
+
+  // If internal carriers haven't arrived yet, keep polling
+  const internalReady = (state.carrierRecords.internal || []).length > 0;
+  const datReady = (state.carrierRecords.dat || []).length > 0;
+  if (!internalReady || !datReady) {
+    if (!_datPollTimer) startDatPolling(state.selectedLaneId);
+  }
 }
 
 function filteredLanes() {
@@ -189,6 +243,83 @@ function dummyConversation(carrier) {
   ];
 }
 
+function showDatStep(step) {
+  els.datStep1.classList.toggle("hidden", step !== 1);
+  els.datStep2.classList.toggle("hidden", step !== 2);
+  els.datResultMsg.classList.add("hidden");
+}
+
+async function submitDatImport(laneId, rawText) {
+  els.datResultMsg.classList.add("hidden");
+  els.datSubmitBtn.disabled = true;
+  els.datSubmitBtn.textContent = "Submitting…";
+  try {
+    await api(`/portal/lanes/${laneId}/dat-imports`, {
+      method: "POST",
+      body: JSON.stringify({ raw_text: rawText }),
+    });
+    els.datResultMsg.textContent = "✓ Submitted — parsing in background. The Carriers tab will update automatically.";
+    els.datResultMsg.style.background = "#ecfdf5";
+    els.datResultMsg.style.color = "#065f46";
+    els.datResultMsg.classList.remove("hidden");
+    setTimeout(async () => {
+      els.datPromptDialog.close();
+      els.datPasteArea.value = "";
+      els.datSubmitBtn.disabled = false;
+      els.datSubmitBtn.textContent = "Parse and Save";
+      await loadDetailAndCrm();
+      state.detailTab = "carriers";
+      state.carrierSourceTab = "dat";
+      state.datPolling = true;   // set BEFORE render so spinner shows immediately
+      render();
+      startDatPolling(laneId);
+    }, 1500);
+  } catch (err) {
+    els.datResultMsg.textContent = err?.payload?.message || err?.message || "Failed to submit DAT text. Please try again.";
+    els.datResultMsg.style.background = "#fef2f2";
+    els.datResultMsg.style.color = "#991b1b";
+    els.datResultMsg.classList.remove("hidden");
+    els.datSubmitBtn.disabled = false;
+    els.datSubmitBtn.textContent = "Parse and Save";
+  }
+}
+
+function renderCarrierSourceTable(records, isLoading) {
+  if (!records || !records.length) {
+    if (isLoading) {
+      return `<div style="padding:1.5rem 0;text-align:center;color:#667085">
+        <div style="margin-bottom:.5rem">⏳ Parsing DAT data in background…</div>
+        <div style="font-size:.8rem;opacity:.7">This page updates automatically every 3 seconds.</div>
+      </div>`;
+    }
+    return `<div class="empty" style="padding:1.5rem 0;text-align:center;color:#667085">No carrier data for this source.</div>`;
+  }
+  return `
+    <div class="table-wrap">
+      <table class="shipment-table" style="font-size:.8rem">
+        <thead>
+          <tr>
+            <th>Carrier Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>MC#</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${records.map((r) => `
+            <tr>
+              <td>${r.carrier_name}</td>
+              <td>${r.email || "-"}</td>
+              <td>${r.phone || "-"}</td>
+              <td>${r.mc_number || "-"}</td>
+              <td style="color:#667085;font-size:.75rem">${r.source_notes || "-"}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>
+    </div>`;
+}
+
 function renderDrawer() {
   if (!state.selectedLaneId || state.tab === "crm" || !state.detail) {
     els.drawer.classList.add("hidden");
@@ -215,6 +346,7 @@ function renderDrawer() {
     ["overview", "Overview"],
     ["responses", "Carrier Responses"],
     ["activity", "Activity Log"],
+    ["carriers", "Carriers"],
   ];
 
   const tabButtons = tabs
@@ -321,11 +453,32 @@ function renderDrawer() {
       </ul>
     </section>`;
 
+  const internalCount = (state.carrierRecords.internal || []).length;
+  const datCount = (state.carrierRecords.dat || []).length;
+  const isLoadingInternal = state.datPolling && internalCount === 0;
+  const isLoadingDat = state.datPolling && state.carrierSourceTab === "dat" && datCount === 0;
+  const internalLabel = isLoadingInternal ? `Internal ⏳` : `Internal (${internalCount})`;
+  const datLabel = state.datPolling && datCount === 0 ? `DAT ⏳` : `DAT (${datCount})`;
+  const carriersSection = `
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+        <div class="tabs">
+          ${[["internal", internalLabel], ["dat", datLabel]]
+            .map(([src, label]) => `<button class="tab-btn ${state.carrierSourceTab === src ? "active" : ""}" data-csrc="${src}">${label}</button>`)
+            .join("")}
+        </div>
+        <button id="refresh-carriers-btn" style="font-size:.75rem;padding:.25rem .6rem;border:1px solid #d0d5dd;border-radius:6px;background:#fff;cursor:pointer;color:#344054">↻ Refresh</button>
+      </div>
+      ${renderCarrierSourceTable(state.carrierRecords[state.carrierSourceTab] || [], isLoadingDat)}
+    </section>`;
+
   const content =
     state.detailTab === "overview"
       ? `${overview}${responsesSection}`
       : state.detailTab === "responses"
       ? responsesSection
+      : state.detailTab === "carriers"
+      ? carriersSection
       : activity;
 
   els.drawerContent.innerHTML = `
@@ -366,6 +519,26 @@ function renderDrawer() {
     detailsBtn.addEventListener("click", () => {
       state.showCarrierDetails = !state.showCarrierDetails;
       renderDrawer();
+    });
+  }
+  els.drawerContent.querySelectorAll("[data-csrc]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.carrierSourceTab = btn.dataset.csrc;
+      renderDrawer();
+    });
+  });
+  const refreshBtn = document.getElementById("refresh-carriers-btn");
+  if (refreshBtn) {
+    refreshBtn.addEventListener("click", async () => {
+      refreshBtn.textContent = "↻ Refreshing…";
+      refreshBtn.disabled = true;
+      try {
+        const data = await api(`/portal/lanes/${state.selectedLaneId}/carrier-records`);
+        state.carrierRecords = data.sources || { internal: [], dat: [] };
+        if ((state.carrierRecords.dat || []).length > 0) stopDatPolling();
+      } finally {
+        renderDrawer();
+      }
     });
   }
 }
@@ -419,10 +592,11 @@ async function onCreateLane(event) {
     await loadLanes();
     state.selectedLaneId = created.lane_id;
     state.tab = "active";
-    await loadDetailAndCrm();
     els.laneDialog.close();
     els.laneForm.reset();
-    render();
+    state.pendingLaneId = created.lane_id;
+    showDatStep(1);
+    els.datPromptDialog.showModal();
   } catch (err) {
     const detail = err?.payload?.detail;
     if (Array.isArray(detail) && detail.length) {
@@ -449,6 +623,25 @@ function bindEvents() {
   els.openLaneForm.addEventListener("click", () => els.laneDialog.showModal());
   els.cancelLane.addEventListener("click", () => els.laneDialog.close());
   els.laneForm.addEventListener("submit", onCreateLane);
+
+  els.datNoBtn.addEventListener("click", async () => {
+    els.datPromptDialog.close();
+    await loadDetailAndCrm();
+    render();
+  });
+  els.datYesBtn.addEventListener("click", () => showDatStep(2));
+  els.datBackBtn.addEventListener("click", () => showDatStep(1));
+  els.datSubmitBtn.addEventListener("click", async () => {
+    const raw = els.datPasteArea.value;
+    if (!raw.trim()) {
+      els.datResultMsg.textContent = "Please paste DAT text before submitting.";
+      els.datResultMsg.style.background = "#fef2f2";
+      els.datResultMsg.style.color = "#991b1b";
+      els.datResultMsg.classList.remove("hidden");
+      return;
+    }
+    await submitDatImport(state.pendingLaneId, raw);
+  });
 }
 
 async function init() {
