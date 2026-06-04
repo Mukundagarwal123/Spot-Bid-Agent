@@ -20,6 +20,10 @@
 ## Phase 3 - Carrier Data Layer
 - Build source adapters for DAT/CSV/internal DB.
 - Normalize and deduplicate carrier records.
+- Start with a CSV-backed contact cache for feature 002, then migrate the same interface to RDS/Postgres.
+Feature spec reference:
+- `docs/features/feature-002-internal-turvo-carrier-recommendation.md` (Source 1: internal Turvo carrier recommendation + email enrichment)
+- `docs/features/feature-003-dat-carrier-data-import.md` (Source 2: DAT paste import + lane-scoped carrier storage)
 
 ## Phase 4 - Outreach Layer
 - Integrate Resend for email blasts.

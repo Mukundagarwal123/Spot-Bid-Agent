@@ -1,4 +1,5 @@
 .venv/
+.env/
 .idea/
 __pycache__/
 *.pyc
@@ -12,3 +13,20 @@ build/
 node_modules/
 *.log
 tmp/
+Carrire Data.csv
+*.csv
+*.xlsx
+FreightX-V1-main/.venv/
+FreightX-V1-main/.env
+FreightX-V1-main/env
+FreightX-V1-main/data/*.csv
+FreightX-V1-main/data/*.xlsx
+FreightX-V1-main/data/*.db
+FreightX-V1-main/data/*.db-journal
+FreightX-V1-main/data/*.shp
+FreightX-V1-main/data/*.shx
+FreightX-V1-main/data/*.dbf
+FreightX-V1-main/data/*.cpg
+FreightX-V1-main/data/*.prj
+FreightX-V1-main/data/*.xml
+FreightX-V1-main/playwright_profile/
