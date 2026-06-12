@@ -6,7 +6,25 @@
       "Bash(npm --version)",
       "Bash(npm create *)",
       "Bash(npm install *)",
-      "Bash(npx vitest *)"
+      "Bash(npx vitest *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\" -Recurse -Force)",
+      "Bash(Select-Object FullName, PSIsContainer)",
+      "Bash(Sort-Object FullName)",
+      "Bash(python -m pytest tests/test_carrier_recommendations.py -v)",
+      "Bash(python -m pip install -e \".[dev]\" -q)",
+      "Bash(python -m pytest tests/test_carrier_recommendations.py tests/test_portal_endpoints.py tests/test_dummy_generator.py -v)",
+      "Bash(Start-Sleep -Seconds 3)",
+      "Bash(Get-Content \"C:\\\\Users\\\\MUKUND~1\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-MukundAgarwal-PycharmProjects-Spot-Bid-Agent\\\\4017952c-040a-465d-ae4f-43ff69547d7e\\\\tasks\\\\b9f4j3jbs.output\")",
+      "Bash(TURVO_MOCK_CARRIERS=true python -c ' *)",
+      "Bash(python -m flask --app app.main run --port 8000)",
+      "Bash(curl -s -X POST http://127.0.0.1:8000/portal/carriers/recommendations/internal-turvo -H \"Content-Type: application/json\" -d '{\"origin_city\":\"Dallas\",\"origin_state\":\"TX\",\"origin_zip\":\"75001\",\"destination_city\":\"Phoenix\",\"destination_state\":\"AZ\",\"destination_zip\":\"85001\"}')",
+      "Bash(python -m json.tool)",
+      "Bash(xargs grep -l \"postgres\\\\|psycopg\\\\|covered_load\\\\|turvo.*db\\\\|db.*turvo\")",
+      "Bash(pip install *)",
+      "Bash(python -c \"import psycopg2; print\\('psycopg2 ready'\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\" -Directory)",
+      "Bash(Select-Object Name)"
     ]
   }
 }

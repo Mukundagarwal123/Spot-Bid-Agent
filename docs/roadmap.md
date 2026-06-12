@@ -24,6 +24,7 @@
 Feature spec reference:
 - `docs/features/feature-002-internal-turvo-carrier-recommendation.md` (Source 1: internal Turvo carrier recommendation + email enrichment)
 - `docs/features/feature-003-dat-carrier-data-import.md` (Source 2: DAT paste import + lane-scoped carrier storage)
+- `docs/features/feature-004-freightx-carrier-relevancy-model.md` (Source 3: FreightX carrier relevancy model)
 
 ## Phase 4 - Outreach Layer
 - Integrate Resend for email blasts.

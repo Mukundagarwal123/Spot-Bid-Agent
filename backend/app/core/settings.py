@@ -50,5 +50,8 @@ class Settings(BaseSettings):
     llm_model: str = "agentic-large"
     llm_api_key: str = ""
 
+    # FreightX carrier relevancy model — path to FreightX-V1/src/api/
+    freightx_src_api_path: str = str(Path(__file__).resolve().parents[3] / "FreightX-V1" / "src" / "api")
+
 
 settings = Settings()

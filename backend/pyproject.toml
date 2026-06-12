@@ -14,7 +14,8 @@ dependencies = [
   "opentelemetry-sdk>=1.36.0",
   "opentelemetry-exporter-otlp>=1.36.0",
   "sqlalchemy>=2.0.0",
-  "psycopg2-binary>=2.9.0"
+  "psycopg2-binary>=2.9.0",
+  "pandas>=2.0.0"
 ]
 
 [project.optional-dependencies]

@@ -13,9 +13,11 @@ from app.db.models import PortalLane
 from app.portal import service
 from app.portal.carriers import dat_service
 from app.portal.carriers.dat_schemas import DatImportRequest
+from app.portal.carriers.freightx_schemas import FreightXRelevancyRequest
 from app.portal.carriers.schemas import CarrierRecommendationRequest
 from app.portal.carriers.service import get_internal_turvo_recommendations
 from app.portal.carriers.source_2_dat.parser import DatParseError
+from app.portal.carriers.source_3_freightx import service as freightx_service
 from app.portal.schemas import (
     CarrierCRMItem,
     CarrierCRMResponse,
@@ -76,6 +78,46 @@ def _bg_process_dat_import(
 ) -> None:
     with session_scope() as db:
         dat_service.create_dat_import(db, lane_id, raw_text, request_id)
+
+
+_PORTAL_TO_FREIGHTX_EQUIP = {"dry_van": "dryvan"}
+_FREIGHTX_SUPPORTED_EQUIP = {"dryvan", "reefer", "flatbed"}
+
+
+def _bg_run_freightx_relevancy(
+    lane_id_str: str,
+    origin_zip: str,
+    destination_zip: str,
+    equipment_type: str,
+    request_id: str,
+) -> None:
+    normalized_equip = _PORTAL_TO_FREIGHTX_EQUIP.get(equipment_type, equipment_type)
+    if normalized_equip not in _FREIGHTX_SUPPORTED_EQUIP:
+        logger.info(
+            "lane.source_3_skipped_unsupported_equipment",
+            lane_id=lane_id_str,
+            equipment_type=equipment_type,
+            source="freightx_relevancy",
+        )
+        return
+
+    with session_scope() as db:
+        result = freightx_service.run_freightx_relevancy(
+            db=db,
+            lane_id=uuid.UUID(lane_id_str),
+            origin_zip=origin_zip,
+            dest_zip=destination_zip,
+            equipment_type=normalized_equip,
+            request_id=request_id,
+        )
+    logger.info(
+        "lane.source_3_carriers_loaded",
+        lane_id=lane_id_str,
+        request_id=request_id,
+        row_count=result.row_count,
+        status=result.status,
+        source="freightx_relevancy",
+    )
 
 _ZERO_METRICS = MetricsSnapshot(
     emails_sent=0,
@@ -172,6 +214,16 @@ def create_lane():
         )
         _run_background(_bg_fetch_internal_carriers, str(lane.id), carrier_request, request_id)
         logger.info("lane.source_1_carriers_queued", lane_id=str(lane.id), source="turvo_internal")
+
+        _run_background(
+            _bg_run_freightx_relevancy,
+            str(lane.id),
+            lane.origin_zip,
+            lane.destination_zip,
+            lane.equipment_type,
+            request_id,
+        )
+        logger.info("lane.source_3_carriers_queued", lane_id=str(lane.id), source="freightx_relevancy")
     else:
         logger.info(
             "lane.source_1_skipped_missing_zip",
@@ -294,6 +346,81 @@ def get_carrier_records(lane_id: uuid.UUID):
         response = dat_service.get_carrier_records(db, lane_id, source_type)
         if response is None:
             return jsonify({"detail": "Lane not found"}), 404
+    return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.post("/lanes/<uuid:lane_id>/freightx-relevancy")
+def run_freightx_relevancy(lane_id: uuid.UUID):
+    payload = request.get_json(silent=True) or {}
+    request_id = getattr(g, "correlation_id", "")
+
+    field_errors: dict[str, str] = {}
+    if not str(payload.get("origin_zip", "")).strip():
+        field_errors["origin_zip"] = "origin_zip is required"
+    if not str(payload.get("destination_zip", "")).strip():
+        field_errors["destination_zip"] = "destination_zip is required"
+    equip_raw = str(payload.get("equipment_type", "")).strip()
+    if not equip_raw:
+        field_errors["equipment_type"] = "equipment_type is required"
+
+    if field_errors:
+        logger.warning(
+            "freightx.request.validation_failed",
+            request_id=request_id,
+            lane_id=str(lane_id),
+            error_fields=sorted(field_errors),
+            source="freightx_relevancy",
+        )
+        return jsonify({"request_id": request_id, "error": "validation_error", "fields": field_errors}), 400
+
+    try:
+        req = FreightXRelevancyRequest.model_validate(payload)
+    except ValidationError as exc:
+        fields = {e["loc"][0]: e["msg"] for e in exc.errors() if e.get("loc")}
+        logger.warning(
+            "freightx.request.validation_failed",
+            request_id=request_id,
+            lane_id=str(lane_id),
+            error_fields=sorted(fields),
+            source="freightx_relevancy",
+        )
+        return jsonify({"request_id": request_id, "error": "validation_error", "fields": fields}), 400
+
+    logger.info(
+        "freightx.request.received",
+        request_id=request_id,
+        lane_id=str(lane_id),
+        origin_zip=req.origin_zip,
+        destination_zip=req.destination_zip,
+        equipment_type=req.equipment_type,
+        source="freightx_relevancy",
+    )
+
+    try:
+        with session_scope() as db:
+            response = freightx_service.run_freightx_relevancy(
+                db=db,
+                lane_id=lane_id,
+                origin_zip=req.origin_zip,
+                dest_zip=req.destination_zip,
+                equipment_type=req.equipment_type,
+                request_id=request_id,
+            )
+    except ValueError as exc:
+        if str(exc) == "lane_not_found":
+            return jsonify({"detail": "Lane not found"}), 404
+        raise
+
+    status_code = 500 if response.status == "freightx_model_failure" else 200
+    return jsonify(response.model_dump(mode="json")), status_code
+
+
+@portal_api_bp.get("/lanes/<uuid:lane_id>/freightx-relevancy")
+def get_freightx_relevancy(lane_id: uuid.UUID):
+    with session_scope() as db:
+        response = freightx_service.get_freightx_records(db, lane_id)
+    if response is None:
+        return jsonify({"detail": "Lane not found"}), 404
     return jsonify(response.model_dump(mode="json"))
 
 

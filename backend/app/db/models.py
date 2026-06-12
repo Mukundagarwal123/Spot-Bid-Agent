@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, Date, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import DateTime, Date, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 try:
@@ -137,4 +137,48 @@ class PortalLaneCarrierRecord(Base):
     phone: Mapped[str] = mapped_column(String(30), nullable=False, default="")
     mc_number: Mapped[str] = mapped_column(String(20), nullable=False, default="")
     source_notes: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CarrierRelevancyRun(Base):
+    """One row per FreightX model invocation for a lane (Source 3)."""
+
+    __tablename__ = "carrier_relevancy_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    origin_zip: Mapped[str] = mapped_column(String(10), nullable=False)
+    destination_zip: Mapped[str] = mapped_column(String(10), nullable=False)
+    equipment_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    model_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CarrierRelevancyRecord(Base):
+    """One carrier row from a FreightX relevancy model run (Source 3)."""
+
+    __tablename__ = "carrier_relevancy_records"
+
+    __table_args__ = (Index("ix_crr_lane_run", "lane_id", "run_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("carrier_relevancy_runs.id", ondelete="CASCADE"), nullable=False
+    )
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    docket_number: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    legal_name: Mapped[str] = mapped_column(String(300), nullable=False, default="")
+    email_address: Mapped[str] = mapped_column(String(254), nullable=False, default="")
+    phone: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    label: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="freightx_relevancy")
+    raw_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
