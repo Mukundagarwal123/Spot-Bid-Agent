@@ -17,6 +17,8 @@ from app.portal.carriers.freightx_schemas import FreightXRelevancyRequest
 from app.portal.carriers.schemas import CarrierRecommendationRequest
 from app.portal.carriers.service import get_internal_turvo_recommendations
 from app.portal.carriers.source_2_dat.parser import DatParseError
+from app.portal.carriers.aggregation import service as aggregation_service
+from app.portal.carriers.aggregation.schemas import OutreachRowResponse, OutreachSetRequest, OutreachSetResponse
 from app.portal.carriers.source_3_freightx import service as freightx_service
 from app.portal.schemas import (
     CarrierCRMItem,
@@ -434,3 +436,80 @@ def get_carrier_crm(lane_id: uuid.UUID):
             carriers=[CarrierCRMItem.model_validate(c) for c in carriers]
         )
     return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.post("/lanes/<uuid:lane_id>/carrier-outreach-sets")
+def create_carrier_outreach_set(lane_id: uuid.UUID):
+    payload = request.get_json(silent=True) or {}
+    request_id = getattr(g, "correlation_id", "")
+
+    try:
+        req = OutreachSetRequest.model_validate(payload)
+    except ValidationError as exc:
+        return _validation_error(exc)
+
+    try:
+        with session_scope() as db:
+            outreach_set = aggregation_service.build_outreach_set(
+                db=db,
+                lane_id=lane_id,
+                include_internal=req.include_internal,
+                include_dat=req.include_dat,
+                include_freightx=req.include_freightx,
+                request_id=request_id,
+            )
+    except ValueError as exc:
+        if str(exc) == "lane_not_found":
+            return jsonify({"detail": "Lane not found"}), 404
+        raise
+
+    response = OutreachSetResponse(
+        lane_id=str(lane_id),
+        outreach_set_id=str(outreach_set.id),
+        status=outreach_set.status,
+        source_count=outreach_set.source_count,
+        row_count=outreach_set.row_count,
+        dedupe_count=outreach_set.dedupe_count,
+    )
+    return jsonify(response.model_dump(mode="json")), 201
+
+
+@portal_api_bp.get("/lanes/<uuid:lane_id>/carrier-outreach-sets/latest")
+def get_latest_carrier_outreach_set(lane_id: uuid.UUID):
+    with session_scope() as db:
+        if db.query(PortalLane).filter_by(id=lane_id).first() is None:
+            return jsonify({"detail": "Lane not found"}), 404
+        outreach_set = aggregation_service.get_latest_outreach_set(db, lane_id)
+        if outreach_set is None:
+            return jsonify({"detail": "No outreach set found for this lane"}), 404
+        response = OutreachSetResponse(
+            lane_id=str(lane_id),
+            outreach_set_id=str(outreach_set.id),
+            status=outreach_set.status,
+            source_count=outreach_set.source_count,
+            row_count=outreach_set.row_count,
+            dedupe_count=outreach_set.dedupe_count,
+        )
+    return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.get("/lanes/<uuid:lane_id>/carrier-outreach-sets/<uuid:set_id>/rows")
+def get_carrier_outreach_rows(lane_id: uuid.UUID, set_id: uuid.UUID):
+    with session_scope() as db:
+        if db.query(PortalLane).filter_by(id=lane_id).first() is None:
+            return jsonify({"detail": "Lane not found"}), 404
+        rows = aggregation_service.get_outreach_rows(db, set_id)
+        response = [
+            OutreachRowResponse(
+                id=str(r.id),
+                carrier_name=r.carrier_name,
+                phone=r.phone,
+                email=r.email,
+                mc_number=r.mc_number,
+                source=r.source,
+                dedupe_key=r.dedupe_key,
+                source_row_ids=json.loads(r.source_row_ids or "[]"),
+            ).model_dump(mode="json")
+            for r in rows
+        ]
+    return jsonify({"lane_id": str(lane_id), "outreach_set_id": str(set_id), "rows": response})

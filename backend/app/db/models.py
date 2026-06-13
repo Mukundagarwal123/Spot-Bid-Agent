@@ -182,3 +182,44 @@ class CarrierRelevancyRecord(Base):
     source_type: Mapped[str] = mapped_column(String(20), nullable=False, default="freightx_relevancy")
     raw_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CarrierOutreachSet(Base):
+    """Metadata for one aggregation build across all three carrier sources for a lane."""
+
+    __tablename__ = "carrier_outreach_sets"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="building")
+    source_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    dedupe_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class CarrierOutreachRow(Base):
+    """One canonical outreach-ready carrier row produced by the multi-source aggregator."""
+
+    __tablename__ = "carrier_outreach_rows"
+
+    __table_args__ = (Index("ix_cor_lane_set", "lane_id", "outreach_set_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    outreach_set_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("carrier_outreach_sets.id", ondelete="CASCADE"), nullable=False
+    )
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    carrier_name: Mapped[str] = mapped_column(String(500), nullable=False)
+    phone: Mapped[str] = mapped_column(String(30), nullable=False, default="")
+    email: Mapped[str] = mapped_column(String(254), nullable=False, default="")
+    mc_number: Mapped[str] = mapped_column(String(20), nullable=False, default="")
+    source: Mapped[str] = mapped_column(String(50), nullable=False, default="")
+    source_row_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    dedupe_key: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
