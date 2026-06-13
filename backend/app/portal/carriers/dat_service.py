@@ -7,7 +7,7 @@ import structlog
 from sqlalchemy.orm import Session
 
 from app.core.settings import settings
-from app.db.models import PortalLane, PortalLaneCarrierRecord, PortalLaneCarrierSource
+from app.db.models import CarrierRelevancyRecord, CarrierRelevancyRun, PortalLane, PortalLaneCarrierRecord, PortalLaneCarrierSource
 from app.portal.carriers.dat_schemas import CarrierRecordItem, CarrierRecordsResponse, DatImportResponse
 from app.portal.carriers.source_2_dat.parser import DatParseError, parse_dat_text
 
@@ -172,5 +172,33 @@ def get_carrier_records(
         if r.source_type not in grouped:
             grouped[r.source_type] = []
         grouped[r.source_type].append(item)
+
+    # Source 3: FreightX records from carrier_relevancy_records
+    latest_run = (
+        db.query(CarrierRelevancyRun)
+        .filter_by(lane_id=lane_id)
+        .order_by(CarrierRelevancyRun.created_at.desc())
+        .first()
+    )
+    if latest_run:
+        fx_records = (
+            db.query(CarrierRelevancyRecord)
+            .filter_by(run_id=latest_run.id)
+            .order_by(CarrierRelevancyRecord.rank)
+            .all()
+        )
+        grouped["freightx"] = [
+            CarrierRecordItem(
+                id=str(r.id),
+                carrier_name=r.legal_name or "",
+                email=r.email_address or "",
+                phone=r.phone or "",
+                mc_number=r.docket_number or "",
+                source_notes=f"Rank {r.rank} | Label: {r.label}" if r.label else f"Rank {r.rank}",
+                source_type="freightx",
+                created_at=r.created_at.isoformat(),
+            )
+            for r in fx_records
+        ]
 
     return CarrierRecordsResponse(lane_id=str(lane_id), sources=grouped)

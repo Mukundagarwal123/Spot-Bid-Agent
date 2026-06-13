@@ -29,8 +29,10 @@ Feature spec reference:
 
 ## Phase 4 - Outreach Layer
 - Integrate Resend for email blasts.
-- Integrate Twilio for SMS and WhatsApp.
 - Persist outbound message references.
+- Add webhook-driven metric updates mapped back to each outbound email/message record.
+- Add lane-level live outreach page with source selection, notes, template preview, and follow-up actions.
+- Keep SMS and WhatsApp disabled until the email workflow is stable.
 
 ## Phase 5 - Event Tracking
 - Capture delivery/open/click/reply callbacks.

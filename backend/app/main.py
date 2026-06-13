@@ -11,7 +11,9 @@ from app.db.base import create_tables
 from app.health.routes import health_bp
 from app.portal.api import portal_api_bp
 from app.portal.carriers.routes import carriers_api_bp
+from app.portal.outreach.routes import outreach_bp
 from app.web.routes import portal_web_bp
+from app.webhooks.routes import webhooks_bp
 
 configure_logging()
 logger = structlog.get_logger(__name__)
@@ -48,6 +50,8 @@ def create_app() -> Flask:
     app.register_blueprint(portal_web_bp)
     app.register_blueprint(portal_api_bp)
     app.register_blueprint(carriers_api_bp)
+    app.register_blueprint(outreach_bp)
+    app.register_blueprint(webhooks_bp)
     app.register_blueprint(health_bp)
 
     return app

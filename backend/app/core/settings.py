@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env from the project root regardless of where the server is started from.
@@ -52,6 +53,18 @@ class Settings(BaseSettings):
 
     # FreightX carrier relevancy model — path to FreightX-V1/src/api/
     freightx_src_api_path: str = str(Path(__file__).resolve().parents[3] / "FreightX-V1" / "src" / "api")
+
+    # Resend email provider
+    # Accepts RESEND_API_KEY or RESEND_FROM / RESEND_FROM_EMAIL (both spellings in the wild)
+    resend_api_key: str = ""
+    resend_from: str = Field(default="", alias="RESEND_FROM", validation_alias="RESEND_FROM")
+    resend_from_email: str = Field(default="", alias="RESEND_FROM_EMAIL", validation_alias="RESEND_FROM_EMAIL")
+    resend_webhook_secret: str = ""
+
+    @property
+    def resend_sender(self) -> str:
+        """Return whichever from-address env var is set."""
+        return self.resend_from or self.resend_from_email
 
 
 settings = Settings()

@@ -13,6 +13,15 @@
   showCarrierDetails: false,
   pendingLaneId: null,
   datPolling: false,
+  outreachPanelOpen: false,
+  outreachSources: { internal: true, dat: true, freightx: true },
+  outreachNotes: "",
+  outreachTestMode: false,
+  outreachTestEmails: "",
+  outreachPreview: null,
+  outreachMetrics: null,
+  outreachBatch: null,
+  outreachSending: false,
 };
 
 let _datPollTimer = null;
@@ -79,6 +88,15 @@ const els = {
   datSubmitBtn: document.getElementById("dat-submit-btn"),
   datBackBtn: document.getElementById("dat-back-btn"),
   datResultMsg: document.getElementById("dat-result-msg"),
+  outreachPreviewDialog: document.getElementById("outreach-preview-dialog"),
+  previewSubject: document.getElementById("preview-subject-line"),
+  previewBody: document.getElementById("preview-body-box"),
+  previewRecipients: document.getElementById("preview-recipient-summary"),
+  previewSourceBadges: document.getElementById("preview-source-badges"),
+  previewSendBtn: document.getElementById("preview-send-btn"),
+  previewEditBtn: document.getElementById("preview-edit-btn"),
+  previewCancelBtn: document.getElementById("preview-cancel-btn"),
+  previewSendError: document.getElementById("preview-send-error"),
 };
 
 function inferStatus(raw, laneId) {
@@ -135,13 +153,21 @@ async function loadDetailAndCrm() {
   ]);
   state.detail = detail;
   state.crm = crm.carriers || [];
-  state.carrierRecords = carrierData.sources || { internal: [], dat: [] };
+  state.carrierRecords = carrierData.sources || { internal: [], dat: [], freightx: [] };
 
   // If internal carriers haven't arrived yet, keep polling
   const internalReady = (state.carrierRecords.internal || []).length > 0;
   const datReady = (state.carrierRecords.dat || []).length > 0;
   if (!internalReady || !datReady) {
     if (!_datPollTimer) startDatPolling(state.selectedLaneId);
+  }
+}
+
+async function loadOutreachMetrics(laneId) {
+  try {
+    state.outreachMetrics = await api(`/portal/lanes/${laneId}/outreach`);
+  } catch (_) {
+    state.outreachMetrics = null;
   }
 }
 
@@ -175,7 +201,9 @@ function renderLanesTable() {
   els.lanesBody.querySelectorAll("tr[data-lane-id]").forEach((row) => {
     row.addEventListener("click", async () => {
       state.selectedLaneId = row.dataset.laneId;
+      state.outreachPanelOpen = false;
       await loadDetailAndCrm();
+      await loadOutreachMetrics(state.selectedLaneId);
       render();
     });
   });
@@ -184,7 +212,9 @@ function renderLanesTable() {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       state.selectedLaneId = btn.dataset.laneId;
+      state.outreachPanelOpen = false;
       await loadDetailAndCrm();
+      await loadOutreachMetrics(state.selectedLaneId);
       render();
     });
   });
@@ -320,6 +350,119 @@ function renderCarrierSourceTable(records, isLoading) {
     </div>`;
 }
 
+function renderOutreachTab() {
+  const m = state.outreachMetrics;
+  const hasBatch = m && m.batch_id;
+
+  function metricBox(label, value, rate) {
+    return `
+      <div style="flex:1;min-width:90px;text-align:center;padding:.75rem;background:#f9fafb;border:1px solid #e4e7ec;border-radius:8px">
+        <div style="font-size:1.4rem;font-weight:700;color:#101828">${value}</div>
+        ${rate !== undefined ? `<div style="font-size:.7rem;color:#667085">${rate}%</div>` : ""}
+        <div style="font-size:.7rem;color:#667085;margin-top:.2rem">${label}</div>
+      </div>`;
+  }
+
+  const metricsBar = hasBatch ? `
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:1.25rem">
+      ${metricBox("Sent", m.sent, undefined)}
+      ${metricBox("Delivered", m.delivered, m.open_rate > 0 ? undefined : undefined)}
+      ${metricBox("Opened", m.opened, m.open_rate)}
+      ${metricBox("Clicked", m.clicked, m.click_through_rate)}
+      ${metricBox("Replied", m.replied, m.reply_rate)}
+    </div>` : "";
+
+  const testBadge = hasBatch && m.test_mode
+    ? `<span style="background:#fef3c7;color:#92400e;font-size:.7rem;padding:.2rem .5rem;border-radius:4px;font-weight:600">TEST RUN</span>`
+    : "";
+
+  const responseRows = (m && m.carrier_responses && m.carrier_responses.length) ? `
+    <div style="margin-bottom:1rem">
+      <div style="font-size:.8rem;font-weight:600;color:#344054;margin-bottom:.5rem">Carrier Responses</div>
+      <div class="table-wrap">
+        <table class="shipment-table" style="font-size:.78rem">
+          <thead>
+            <tr>
+              <th>Carrier</th>
+              <th>Email</th>
+              <th>Source</th>
+              <th>Status</th>
+              <th>Last Event</th>
+              <th>Reply</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${m.carrier_responses.map((r) => `
+              <tr>
+                <td><strong>${r.carrier_name}</strong></td>
+                <td style="color:#667085">${r.email}</td>
+                <td><span class="chip">${r.source || "-"}</span></td>
+                <td><span class="lane-pill active">${r.status}</span></td>
+                <td style="color:#667085;font-size:.72rem">${r.last_event_at ? fmtDateTime(r.last_event_at) : "-"}</td>
+                <td style="color:#344054;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.reply_snippet || "-"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>` : "";
+
+  const sourceCheckboxes = ["internal", "dat", "freightx"].map((src) => `
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem;cursor:pointer">
+      <input type="checkbox" data-outreach-src="${src}" ${state.outreachSources[src] ? "checked" : ""} />
+      ${src.charAt(0).toUpperCase() + src.slice(1)}
+    </label>`).join("");
+
+  const testEmailsBlock = state.outreachTestMode ? `
+    <label style="display:block;margin-top:.75rem;font-size:.85rem;color:#344054">
+      Test Recipients (one per line)
+      <textarea id="outreach-test-emails" rows="3"
+        style="width:100%;box-sizing:border-box;margin-top:.3rem;resize:vertical;font-size:.8rem;padding:.4rem .6rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace"
+        placeholder="test1@example.com"
+      >${state.outreachTestEmails}</textarea>
+    </label>` : "";
+
+  const launchPanel = state.outreachPanelOpen ? `
+    <div style="border:1px solid #e4e7ec;border-radius:8px;padding:1rem;margin-top:1rem;background:#fafafa">
+      <div style="font-size:.85rem;font-weight:600;color:#344054;margin-bottom:.75rem">Configure Outreach</div>
+      <div style="margin-bottom:.75rem">
+        <div style="font-size:.8rem;color:#667085;margin-bottom:.4rem">Include Sources</div>
+        <div style="display:flex;gap:1rem;flex-wrap:wrap">${sourceCheckboxes}</div>
+      </div>
+      <label style="display:block;font-size:.85rem;color:#344054;margin-bottom:.5rem">
+        Notes (optional)
+        <textarea id="outreach-notes" rows="3"
+          style="width:100%;box-sizing:border-box;margin-top:.3rem;resize:vertical;font-size:.8rem;padding:.4rem .6rem;border:1px solid #d0d5dd;border-radius:6px"
+          placeholder="Add context for carriers…"
+        >${state.outreachNotes}</textarea>
+      </label>
+      <label style="display:flex;align-items:center;gap:.5rem;font-size:.85rem;cursor:pointer;margin-bottom:.25rem">
+        <input type="checkbox" id="outreach-test-toggle" ${state.outreachTestMode ? "checked" : ""} />
+        Test Mode
+      </label>
+      ${testEmailsBlock}
+      <div class="form-actions" style="margin-top:1rem">
+        <button id="outreach-preview-btn" class="btn-primary" ${state.outreachSending ? "disabled" : ""}>
+          ${state.outreachSending ? "Sending…" : "Preview Email"}
+        </button>
+        <button id="outreach-panel-cancel" class="btn-secondary">Cancel</button>
+      </div>
+    </div>` : "";
+
+  return `
+    <section class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.75rem">
+        <div style="font-size:.9rem;font-weight:600;color:#101828">
+          Email Outreach ${testBadge}
+        </div>
+        ${hasBatch ? `<button id="launch-outreach-btn" class="btn-secondary" style="font-size:.78rem">New Send</button>` : `<button id="launch-outreach-btn" class="btn-primary" style="font-size:.78rem">Launch Outreach</button>`}
+      </div>
+      ${metricsBar}
+      ${responseRows}
+      ${!hasBatch && !state.outreachPanelOpen ? `<div class="empty" style="padding:1.5rem 0;text-align:center;color:#667085">No outreach sent yet for this lane.</div>` : ""}
+      ${launchPanel}
+    </section>`;
+}
+
 function renderDrawer() {
   if (!state.selectedLaneId || state.tab === "crm" || !state.detail) {
     els.drawer.classList.add("hidden");
@@ -347,6 +490,7 @@ function renderDrawer() {
     ["responses", "Carrier Responses"],
     ["activity", "Activity Log"],
     ["carriers", "Carriers"],
+    ["outreach", "Outreach"],
   ];
 
   const tabButtons = tabs
@@ -455,22 +599,61 @@ function renderDrawer() {
 
   const internalCount = (state.carrierRecords.internal || []).length;
   const datCount = (state.carrierRecords.dat || []).length;
+  const freightxCount = (state.carrierRecords.freightx || []).length;
   const isLoadingInternal = state.datPolling && internalCount === 0;
   const isLoadingDat = state.datPolling && state.carrierSourceTab === "dat" && datCount === 0;
   const internalLabel = isLoadingInternal ? `Internal ⏳` : `Internal (${internalCount})`;
   const datLabel = state.datPolling && datCount === 0 ? `DAT ⏳` : `DAT (${datCount})`;
+  const freightxLabel = `FreightX (${freightxCount})`;
+
+  function renderFreightXTable(records) {
+    if (!records || !records.length) {
+      return `<div class="empty" style="padding:1.5rem 0;text-align:center;color:#667085">No FreightX data for this lane.</div>`;
+    }
+    return `
+      <div class="table-wrap">
+        <table class="shipment-table" style="font-size:.8rem">
+          <thead>
+            <tr>
+              <th>Carrier Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>MC#</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${records.map((r) => `
+              <tr>
+                <td>${r.carrier_name || "-"}</td>
+                <td>${r.email || "-"}</td>
+                <td>${r.phone || "-"}</td>
+                <td>${r.mc_number || "-"}</td>
+                <td style="color:#667085;font-size:.75rem">${r.source_notes || "-"}</td>
+              </tr>`).join("")}
+          </tbody>
+        </table>
+      </div>`;
+  }
+
+  const activeCarrierTable = state.carrierSourceTab === "freightx"
+    ? renderFreightXTable(state.carrierRecords.freightx || [])
+    : renderCarrierSourceTable(state.carrierRecords[state.carrierSourceTab] || [], isLoadingDat);
+
   const carriersSection = `
     <section class="card">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
         <div class="tabs">
-          ${[["internal", internalLabel], ["dat", datLabel]]
+          ${[["internal", internalLabel], ["dat", datLabel], ["freightx", freightxLabel]]
             .map(([src, label]) => `<button class="tab-btn ${state.carrierSourceTab === src ? "active" : ""}" data-csrc="${src}">${label}</button>`)
             .join("")}
         </div>
         <button id="refresh-carriers-btn" style="font-size:.75rem;padding:.25rem .6rem;border:1px solid #d0d5dd;border-radius:6px;background:#fff;cursor:pointer;color:#344054">↻ Refresh</button>
       </div>
-      ${renderCarrierSourceTable(state.carrierRecords[state.carrierSourceTab] || [], isLoadingDat)}
+      ${activeCarrierTable}
     </section>`;
+
+  const outreachSection = renderOutreachTab();
 
   const content =
     state.detailTab === "overview"
@@ -479,6 +662,8 @@ function renderDrawer() {
       ? responsesSection
       : state.detailTab === "carriers"
       ? carriersSection
+      : state.detailTab === "outreach"
+      ? outreachSection
       : activity;
 
   els.drawerContent.innerHTML = `
@@ -534,13 +719,15 @@ function renderDrawer() {
       refreshBtn.disabled = true;
       try {
         const data = await api(`/portal/lanes/${state.selectedLaneId}/carrier-records`);
-        state.carrierRecords = data.sources || { internal: [], dat: [] };
+        state.carrierRecords = data.sources || { internal: [], dat: [], freightx: [] };
         if ((state.carrierRecords.dat || []).length > 0) stopDatPolling();
       } finally {
         renderDrawer();
       }
     });
   }
+
+  bindOutreachEvents();
 }
 
 function render() {
@@ -642,6 +829,167 @@ function bindEvents() {
     }
     await submitDatImport(state.pendingLaneId, raw);
   });
+
+  // Preview dialog buttons
+  els.previewCancelBtn.addEventListener("click", () => {
+    els.outreachPreviewDialog.close();
+  });
+
+  els.previewEditBtn.addEventListener("click", () => {
+    els.outreachPreviewDialog.close();
+    // Return focus to notes in the outreach panel
+    setTimeout(() => {
+      const notesTA = document.getElementById("outreach-notes");
+      if (notesTA) notesTA.focus();
+    }, 50);
+  });
+
+  els.previewSendBtn.addEventListener("click", async () => {
+    if (!state.outreachPreview || state.outreachSending) return;
+    state.outreachSending = true;
+    els.previewSendBtn.disabled = true;
+    els.previewSendBtn.textContent = "Sending…";
+    els.previewSendError.classList.add("hidden");
+
+    try {
+      const result = await api(`/portal/lanes/${state.selectedLaneId}/outreach/send`, {
+        method: "POST",
+        body: JSON.stringify(state.outreachPreview._payload),
+      });
+      state.outreachBatch = result;
+      state.outreachPanelOpen = false;
+      els.outreachPreviewDialog.close();
+      state.detailTab = "outreach";
+      await loadOutreachMetrics(state.selectedLaneId);
+      renderDrawer();
+      // Poll for fast webhook events (up to 5 times, every 10s)
+      let polls = 0;
+      const pollTimer = setInterval(async () => {
+        polls++;
+        await loadOutreachMetrics(state.selectedLaneId);
+        renderDrawer();
+        if (polls >= 5 || (state.outreachMetrics && state.outreachMetrics.delivered > 0)) {
+          clearInterval(pollTimer);
+        }
+      }, 10000);
+    } catch (err) {
+      els.previewSendError.textContent = err?.payload?.detail || err?.message || "Send failed. Please try again.";
+      els.previewSendError.classList.remove("hidden");
+    } finally {
+      state.outreachSending = false;
+      els.previewSendBtn.disabled = false;
+      els.previewSendBtn.textContent = "Confirm and Send";
+    }
+  });
+}
+
+function bindOutreachEvents() {
+  // Launch / New Send button
+  const launchBtn = document.getElementById("launch-outreach-btn");
+  if (launchBtn) {
+    launchBtn.addEventListener("click", () => {
+      state.outreachPanelOpen = true;
+      renderDrawer();
+    });
+  }
+
+  // Cancel outreach panel
+  const panelCancel = document.getElementById("outreach-panel-cancel");
+  if (panelCancel) {
+    panelCancel.addEventListener("click", () => {
+      state.outreachPanelOpen = false;
+      renderDrawer();
+    });
+  }
+
+  // Source checkboxes
+  document.querySelectorAll("[data-outreach-src]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      state.outreachSources[cb.dataset.outreachSrc] = cb.checked;
+    });
+  });
+
+  // Notes textarea (live sync)
+  const notesTA = document.getElementById("outreach-notes");
+  if (notesTA) {
+    notesTA.addEventListener("input", () => { state.outreachNotes = notesTA.value; });
+  }
+
+  // Test mode toggle
+  const testToggle = document.getElementById("outreach-test-toggle");
+  if (testToggle) {
+    testToggle.addEventListener("change", () => {
+      state.outreachTestMode = testToggle.checked;
+      renderDrawer();
+    });
+  }
+
+  // Test emails textarea (live sync)
+  const testEmailsTA = document.getElementById("outreach-test-emails");
+  if (testEmailsTA) {
+    testEmailsTA.addEventListener("input", () => { state.outreachTestEmails = testEmailsTA.value; });
+  }
+
+  // Preview button
+  const previewBtn = document.getElementById("outreach-preview-btn");
+  if (previewBtn) {
+    previewBtn.addEventListener("click", async () => {
+      const notes = document.getElementById("outreach-notes")?.value ?? state.outreachNotes;
+      const testEmails = document.getElementById("outreach-test-emails")?.value ?? state.outreachTestEmails;
+      state.outreachNotes = notes;
+      state.outreachTestEmails = testEmails;
+
+      const manualEmails = testEmails
+        .split("\n")
+        .map((e) => e.trim())
+        .filter(Boolean);
+
+      const payload = {
+        include_internal: state.outreachSources.internal,
+        include_dat: state.outreachSources.dat,
+        include_freightx: state.outreachSources.freightx,
+        test_mode: state.outreachTestMode,
+        manual_emails: manualEmails,
+        notes: notes,
+      };
+
+      previewBtn.disabled = true;
+      previewBtn.textContent = "Loading preview…";
+      try {
+        const preview = await api(`/portal/lanes/${state.selectedLaneId}/outreach/preview`, {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        state.outreachPreview = { ...preview, _payload: payload };
+        openPreviewModal(preview);
+      } catch (err) {
+        alert(err?.payload?.detail || err?.message || "Failed to load preview.");
+      } finally {
+        previewBtn.disabled = false;
+        previewBtn.textContent = "Preview Email";
+      }
+    });
+  }
+}
+
+function openPreviewModal(preview) {
+  els.previewSubject.textContent = preview.subject;
+  els.previewBody.textContent = preview.body;
+
+  const recipientLabel = preview.test_mode
+    ? `${preview.recipient_count} test recipient${preview.recipient_count !== 1 ? "s" : ""}`
+    : `${preview.recipient_count} carrier${preview.recipient_count !== 1 ? "s" : ""}`;
+  els.previewRecipients.textContent = `Recipients: ${recipientLabel}`;
+
+  els.previewSourceBadges.innerHTML = preview.test_mode
+    ? `<span style="background:#fef3c7;color:#92400e;font-size:.75rem;padding:.2rem .6rem;border-radius:4px;font-weight:600">TEST RUN</span>`
+    : (preview.sources_included || []).map((s) =>
+        `<span class="chip">${s}</span>`
+      ).join("");
+
+  els.previewSendError.classList.add("hidden");
+  els.previewSendError.textContent = "";
+  els.outreachPreviewDialog.showModal();
 }
 
 async function init() {
@@ -649,6 +997,7 @@ async function init() {
   await loadLanes();
   if (state.selectedLaneId) {
     await loadDetailAndCrm();
+    await loadOutreachMetrics(state.selectedLaneId);
   }
   render();
 }

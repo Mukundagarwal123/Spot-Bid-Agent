@@ -24,7 +24,19 @@
       "Bash(python -c \"import psycopg2; print\\('psycopg2 ready'\\)\")",
       "Bash(python -c ' *)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\" -Directory)",
-      "Bash(Select-Object Name)"
+      "Bash(Select-Object Name)",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\")",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\\\\backend\")",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\\\\FreightX-V1\")",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\\\\backend\\\\app\\\\db\" /s)",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\\\\backend\\\\app\" /s)",
+      "Bash(dir \"C:\\\\Users\\\\MukundAgarwal\\\\PycharmProjects\\\\Spot Bid Agent\\\\backend\\\\app\\\\portal\\\\carriers\\\\\" )",
+      "Bash(python -m pytest tests/test_carrier_aggregation.py -v)",
+      "Bash(python -m pytest tests/ -v --ignore=tests/test_carrier_aggregation.py)",
+      "Bash(python -c \"from app.main import app; print\\('App loaded OK'\\)\")",
+      "Bash(python -m pytest tests/test_outreach.py -v)",
+      "Bash(python -m pytest -v)",
+      "Bash(python -c \"from app.main import app; from app.core.settings import settings; print\\('sender:', repr\\(settings.resend_sender\\)\\)\")"
     ]
   }
 }

@@ -143,6 +143,28 @@
       </div>
     </dialog>
 
+    <dialog id="outreach-preview-dialog">
+      <div class="lane-form" style="min-width:560px;max-width:700px">
+        <h2>Preview Outreach Email</h2>
+        <div style="margin-bottom:.75rem">
+          <div style="font-size:.75rem;color:#667085;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.05em">Subject</div>
+          <div id="preview-subject-line" style="font-weight:600;color:#101828;padding:.5rem .75rem;background:#f9fafb;border:1px solid #e4e7ec;border-radius:6px"></div>
+        </div>
+        <div style="margin-bottom:.75rem">
+          <div style="font-size:.75rem;color:#667085;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.05em">Body</div>
+          <pre id="preview-body-box" style="white-space:pre-wrap;font-family:inherit;font-size:.8rem;line-height:1.6;background:#f9fafb;border:1px solid #e4e7ec;border-radius:6px;padding:.75rem 1rem;max-height:260px;overflow-y:auto;margin:0"></pre>
+        </div>
+        <div id="preview-recipient-summary" style="margin-bottom:1rem;font-size:.85rem;color:#344054"></div>
+        <div id="preview-source-badges" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap"></div>
+        <div class="form-actions">
+          <button id="preview-send-btn" class="btn-primary">Confirm and Send</button>
+          <button id="preview-edit-btn" class="btn-secondary">Edit Notes</button>
+          <button id="preview-cancel-btn" class="btn-secondary">Cancel</button>
+        </div>
+        <p id="preview-send-error" class="form-error hidden"></p>
+      </div>
+    </dialog>
+
     <script src="{{ url_for('portal_web.static', filename='portal.js') }}"></script>
   </body>
 </html>

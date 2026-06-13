@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime
 
-from sqlalchemy import DateTime, Date, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Date, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 try:
@@ -223,3 +223,93 @@ class CarrierOutreachRow(Base):
     source_row_ids: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     dedupe_key: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class OutreachBatch(Base):
+    """One send campaign (production or test) for a lane."""
+
+    __tablename__ = "outreach_batches"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    outreach_set_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("carrier_outreach_sets.id", ondelete="SET NULL"), nullable=True
+    )
+    test_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    include_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_dat: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    include_freightx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    subject: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    email_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class OutreachMessage(Base):
+    """One email sent to one carrier address within a batch."""
+
+    __tablename__ = "outreach_messages"
+
+    __table_args__ = (Index("ix_om_batch_lane", "batch_id", "lane_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("outreach_batches.id", ondelete="CASCADE"), nullable=False
+    )
+    lane_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="CASCADE"), nullable=False
+    )
+    outreach_row_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("carrier_outreach_rows.id", ondelete="SET NULL"), nullable=True
+    )
+    carrier_name: Mapped[str] = mapped_column(String(500), nullable=False, default="")
+    email_to: Mapped[str] = mapped_column(String(254), nullable=False)
+    provider: Mapped[str] = mapped_column(String(20), nullable=False, default="resend")
+    provider_message_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="sent")
+    test_mode: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    clicked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class OutreachMessageEvent(Base):
+    """Append-only audit log; one row per provider webhook callback."""
+
+    __tablename__ = "outreach_message_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("outreach_messages.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    event_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+
+
+class OutreachReply(Base):
+    """Inbound reply from a carrier, matched back to an outreach message when possible."""
+
+    __tablename__ = "outreach_replies"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("outreach_messages.id", ondelete="SET NULL"), nullable=True
+    )
+    lane_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="SET NULL"), nullable=True
+    )
+    from_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    from_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reply_subject: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    reply_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    received_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_headers: Mapped[str | None] = mapped_column(Text, nullable=True)
