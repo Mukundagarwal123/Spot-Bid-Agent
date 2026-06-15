@@ -1,170 +1,235 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Spot Bid Portal</title>
-    <link
-      rel="stylesheet"
-      href="{{ url_for('portal_web.static', filename='portal.css') }}"
-    />
-  </head>
-  <body>
-    <div class="portal-shell">
-      <aside class="left-nav">
-        <div class="brand">
-          <div class="brand-mark">SB</div>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Spot Bid Portal</title>
+  <link rel="stylesheet" href="{{ url_for('portal_web.static', filename='portal.css') }}" />
+</head>
+<body>
+  <div class="portal-shell">
+
+    <aside class="left-nav">
+      <div class="brand">
+        <div class="brand-mark">SB</div>
+        <div>
+          <div class="brand-title">Spot Bid Portal</div>
+          <div class="brand-subtitle">Lane operations console</div>
+        </div>
+      </div>
+      <nav class="left-tabs">
+        <button class="left-tab active" data-tab="active">Active Lanes</button>
+        <button class="left-tab" data-tab="completed">Completed</button>
+        <button class="left-tab" data-tab="crm">Carrier CRM</button>
+      </nav>
+    </aside>
+
+    <main class="content-area">
+      <section id="lane-workspace" class="lanes-workspace">
+        <header class="workspace-header">
           <div>
-            <div class="brand-title">Spot Bid Portal</div>
-            <div class="brand-subtitle">Lane operations console</div>
+            <h1 id="workspace-title">Active Lanes</h1>
+            <p id="workspace-sub">Track outreach and carrier responses by lane.</p>
+          </div>
+          <button class="btn-primary" id="open-lane-form">+ Add Lane</button>
+        </header>
+        <div id="lanes-grid" class="lanes-grid"></div>
+      </section>
+
+      <section id="crm-workspace" class="lanes-workspace hidden">
+        <header class="workspace-header">
+          <div>
+            <h1>Carrier CRM</h1>
+            <p>Carrier profile history and communication preferences.</p>
+          </div>
+        </header>
+        <div class="table-wrap">
+          <table class="shipment-table">
+            <thead>
+              <tr>
+                <th>Carrier</th>
+                <th>Contacted</th>
+                <th>Responded</th>
+                <th>Rate</th>
+                <th>Preferred Channel</th>
+                <th>Last Contact</th>
+              </tr>
+            </thead>
+            <tbody id="crm-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ═══ NEW CAMPAIGN MODAL (two-panel) ═══════════════════════════ -->
+  <dialog id="lane-dialog" class="lane-modal">
+    <div class="lane-modal-inner">
+
+      <!-- Left: form -->
+      <div class="lm-form-panel">
+        <div class="lm-panel-header">
+          <div>
+            <h2 class="lm-title">New Campaign</h2>
+            <p class="lm-subtitle">Set up a lane and choose your carrier sources.</p>
+          </div>
+          <button class="lm-close-btn" id="cancel-lane">×</button>
+        </div>
+
+        <form id="lane-form" method="dialog">
+
+          <div class="lm-section-label">Lane Details</div>
+          <div class="lm-form-grid">
+            <div class="lm-field">
+              <label class="lm-label">Origin City <span class="lm-req">*</span></label>
+              <input class="lm-input" required name="origin_city" placeholder="Chicago" id="f-origin-city" />
+            </div>
+            <div class="lm-field">
+              <label class="lm-label">State <span class="lm-req">*</span></label>
+              <input class="lm-input" required name="origin_state" maxlength="2" placeholder="IL" id="f-origin-state" style="text-transform:uppercase" />
+            </div>
+            <div class="lm-field lm-span2">
+              <label class="lm-label">Origin ZIP</label>
+              <input class="lm-input" name="origin_zip" maxlength="5" pattern="\d{5}" placeholder="60601" id="f-origin-zip" />
+            </div>
+            <div class="lm-field">
+              <label class="lm-label">Destination City <span class="lm-req">*</span></label>
+              <input class="lm-input" required name="destination_city" placeholder="Dallas" id="f-dest-city" />
+            </div>
+            <div class="lm-field">
+              <label class="lm-label">State <span class="lm-req">*</span></label>
+              <input class="lm-input" required name="destination_state" maxlength="2" placeholder="TX" id="f-dest-state" style="text-transform:uppercase" />
+            </div>
+            <div class="lm-field lm-span2">
+              <label class="lm-label">Destination ZIP</label>
+              <input class="lm-input" name="destination_zip" maxlength="5" pattern="\d{5}" placeholder="75201" id="f-dest-zip" />
+            </div>
+            <div class="lm-field">
+              <label class="lm-label">Equipment <span class="lm-req">*</span></label>
+              <select class="lm-input" name="equipment_type" required id="f-equip">
+                <option value="dry_van">Dry Van</option>
+                <option value="reefer">Reefer</option>
+                <option value="flatbed">Flatbed</option>
+                <option value="power_only">Power Only</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+            <div class="lm-field">
+              <label class="lm-label">Pickup Date</label>
+              <input class="lm-input" type="date" name="pickup_date" id="f-pickup" />
+            </div>
+          </div>
+
+          <div class="lm-field" style="margin-top:10px">
+            <label class="lm-label">Notes <span class="lm-optional">(optional)</span></label>
+            <textarea class="lm-input lm-textarea" name="notes" rows="2" id="f-notes"
+              placeholder="Special requirements or context for carriers…"></textarea>
+          </div>
+
+          <div class="lm-section-label" style="margin-top:18px">Carrier List</div>
+          <div class="src-card-grid">
+            <div class="src-card on" data-src="internal">
+              <div class="src-card-icon">🗄️</div>
+              <div class="src-card-info">
+                <div class="src-card-name">Internal</div>
+                <div class="src-card-sub">Your carrier DB</div>
+              </div>
+              <div class="src-check">✓</div>
+            </div>
+            <div class="src-card on" data-src="dat">
+              <div class="src-card-icon">🚛</div>
+              <div class="src-card-info">
+                <div class="src-card-name">DAT</div>
+                <div class="src-card-sub">Load board data</div>
+              </div>
+              <div class="src-check">✓</div>
+            </div>
+            <div class="src-card on" data-src="crr_model">
+              <div class="src-card-icon">✨</div>
+              <div class="src-card-info">
+                <div class="src-card-name">CRR Model</div>
+                <div class="src-card-sub">AI-ranked carriers</div>
+              </div>
+              <div class="src-check">✓</div>
+            </div>
+            <div class="src-card" data-src="manual">
+              <div class="src-card-icon">✏️</div>
+              <div class="src-card-info">
+                <div class="src-card-name">Manual Emails</div>
+                <div class="src-card-sub">Enter recipients</div>
+              </div>
+              <div class="src-check">✓</div>
+            </div>
+          </div>
+
+          <div id="manual-emails-section" class="hidden manual-section">
+            <div class="lm-section-label" style="margin-top:12px;margin-bottom:6px">Manual Recipients</div>
+            <div id="manual-email-rows"></div>
+            <button type="button" id="add-manual-row-btn" class="add-row-btn">+ Add Recipient</button>
+          </div>
+
+          <p id="lane-form-error" class="form-error hidden"></p>
+
+          <div class="lm-actions">
+            <button type="button" class="btn-ghost" id="cancel-lane-2">Cancel</button>
+            <button type="submit" class="btn-primary">Create Campaign</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Right: email preview -->
+      <div class="lm-preview-panel">
+        <div class="lm-preview-top">
+          <span class="lm-preview-title">Email Preview</span>
+          <div class="lm-preview-tab-bar">
+            <button class="lm-ptab active" id="ptab-preview">Preview</button>
+            <button class="lm-ptab" id="ptab-edit">Edit Text</button>
           </div>
         </div>
-        <nav class="left-tabs">
-          <button class="left-tab active" data-tab="active">Active Lanes</button>
-          <button class="left-tab" data-tab="completed">Completed</button>
-          <button class="left-tab" data-tab="crm">Carrier CRM</button>
-        </nav>
-      </aside>
-
-      <main class="content-area">
-        <section id="lane-workspace" class="lanes-workspace">
-          <header class="workspace-header">
-            <div>
-              <h1 id="workspace-title">Active Lanes</h1>
-              <p>Track outreach and carrier responses by lane.</p>
-            </div>
-            <button class="btn-primary" id="open-lane-form">Add Lane</button>
-          </header>
-
-          <div class="table-wrap">
-            <table class="shipment-table">
-              <thead>
-                <tr>
-                  <th>Lane</th>
-                  <th>Equipment</th>
-                  <th>Pickup Date</th>
-                  <th>Contacted</th>
-                  <th>Responded</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="lanes-body"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section id="crm-workspace" class="lanes-workspace hidden">
-          <header class="workspace-header">
-            <div>
-              <h1>Carrier CRM</h1>
-              <p>Carrier profile history and communication preferences.</p>
-            </div>
-          </header>
-          <div class="table-wrap">
-            <table class="shipment-table">
-              <thead>
-                <tr>
-                  <th>Carrier</th>
-                  <th>Contacted</th>
-                  <th>Responded</th>
-                  <th>Rate</th>
-                  <th>Preferred Channel</th>
-                  <th>Last Contact</th>
-                </tr>
-              </thead>
-              <tbody id="crm-body"></tbody>
-            </table>
-          </div>
-        </section>
-      </main>
-
-      <aside id="drawer" class="detail-drawer hidden">
-        <div class="detail-drawer-head">
-          <button class="drawer-close" id="close-drawer">×</button>
+        <div id="lm-preview-pane">
+          <iframe id="lm-preview-iframe" frameborder="0" scrolling="auto"
+            sandbox="allow-same-origin" title="Email preview"
+            style="width:100%;height:100%;border:none;display:block;flex:1"></iframe>
         </div>
-        <div id="drawer-content"></div>
-      </aside>
+        <div id="lm-edit-pane" class="hidden lm-edit-pane">
+          <div class="lm-edit-hint">
+            Edit the email body text below. Changes reflect in the Preview tab.<br>
+            <em>Use the Notes field to add special instructions to carriers.</em>
+          </div>
+          <textarea id="lm-email-body-text" class="lm-email-textarea" rows="18"
+            placeholder="Email body will appear here once you fill in lane details…"></textarea>
+        </div>
+      </div>
+
     </div>
+  </dialog>
 
-    <dialog id="lane-dialog">
-      <form id="lane-form" class="lane-form" method="dialog">
-        <h2>Create Lane</h2>
-        <div class="form-grid">
-          <label>Origin City <input required name="origin_city" /></label>
-          <label>Origin State <input required name="origin_state" maxlength="2" /></label>
-          <label>Origin Zip <input required name="origin_zip" maxlength="5" pattern="\d{5}" placeholder="75001" /></label>
-          <label>Destination City <input required name="destination_city" /></label>
-          <label>Destination State <input required name="destination_state" maxlength="2" /></label>
-          <label>Destination Zip <input required name="destination_zip" maxlength="5" pattern="\d{5}" placeholder="85001" /></label>
-          <label>Equipment
-            <select name="equipment_type" required>
-              <option value="dry_van">Dry Van</option>
-              <option value="reefer">Reefer</option>
-              <option value="flatbed">Flatbed</option>
-              <option value="power_only">Power Only</option>
-              <option value="other">Other</option>
-            </select>
-          </label>
-          <label>Pickup Date <input type="date" name="pickup_date" /></label>
-        </div>
+  <!-- DAT import dialog -->
+  <dialog id="dat-prompt-dialog">
+    <div class="lane-form" style="min-width:480px;max-width:640px">
+      <h2>Import DAT Carrier Data</h2>
+      <div id="dat-step-1">
+        <p style="margin-bottom:1.5rem;color:#475467">Do you want to import DAT carrier data for this lane?</p>
         <div class="form-actions">
-          <button type="submit" class="btn-primary">Create</button>
-          <button type="button" id="cancel-lane" class="btn-secondary">Cancel</button>
-        </div>
-        <p id="lane-form-error" class="form-error hidden"></p>
-      </form>
-    </dialog>
-
-    <dialog id="dat-prompt-dialog">
-      <div class="lane-form" style="min-width:480px;max-width:640px">
-        <h2>Import DAT Carrier Data</h2>
-        <div id="dat-step-1">
-          <p style="margin-bottom:1.5rem;color:#475467">Do you want to import DAT carrier data for this lane?</p>
-          <div class="form-actions">
-            <button id="dat-yes-btn" class="btn-primary">Yes, paste DAT data</button>
-            <button id="dat-no-btn" class="btn-secondary">No, skip</button>
-          </div>
-        </div>
-        <div id="dat-step-2" class="hidden">
-          <p style="margin-bottom:.75rem;color:#475467;font-size:.875rem">Copy text directly from DAT and paste below.</p>
-          <textarea
-            id="dat-paste-area"
-            rows="12"
-            style="width:100%;box-sizing:border-box;resize:vertical;font-size:.8rem;padding:.5rem .75rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
-            placeholder="Paste DAT text here..."
-          ></textarea>
-          <div id="dat-result-msg" class="hidden" style="margin:.75rem 0;padding:.5rem .75rem;border-radius:6px;font-size:.85rem"></div>
-          <div class="form-actions" style="margin-top:1rem">
-            <button id="dat-submit-btn" class="btn-primary">Parse and Save</button>
-            <button id="dat-back-btn" class="btn-secondary">Back</button>
-          </div>
+          <button id="dat-yes-btn" class="btn-primary">Yes, paste DAT data</button>
+          <button id="dat-no-btn" class="btn-secondary">No, skip</button>
         </div>
       </div>
-    </dialog>
-
-    <dialog id="outreach-preview-dialog">
-      <div class="lane-form" style="min-width:560px;max-width:700px">
-        <h2>Preview Outreach Email</h2>
-        <div style="margin-bottom:.75rem">
-          <div style="font-size:.75rem;color:#667085;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.05em">Subject</div>
-          <div id="preview-subject-line" style="font-weight:600;color:#101828;padding:.5rem .75rem;background:#f9fafb;border:1px solid #e4e7ec;border-radius:6px"></div>
+      <div id="dat-step-2" class="hidden">
+        <p style="margin-bottom:.75rem;color:#475467;font-size:.875rem">Copy text directly from DAT and paste below.</p>
+        <textarea id="dat-paste-area" rows="12"
+          style="width:100%;box-sizing:border-box;resize:vertical;font-size:.8rem;padding:.5rem .75rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
+          placeholder="Paste DAT text here..."></textarea>
+        <div id="dat-result-msg" class="hidden"
+          style="margin:.75rem 0;padding:.5rem .75rem;border-radius:6px;font-size:.85rem"></div>
+        <div class="form-actions" style="margin-top:1rem">
+          <button id="dat-submit-btn" class="btn-primary">Parse and Save</button>
+          <button id="dat-back-btn" class="btn-secondary">Back</button>
         </div>
-        <div style="margin-bottom:.75rem">
-          <div style="font-size:.75rem;color:#667085;margin-bottom:.25rem;text-transform:uppercase;letter-spacing:.05em">Body</div>
-          <pre id="preview-body-box" style="white-space:pre-wrap;font-family:inherit;font-size:.8rem;line-height:1.6;background:#f9fafb;border:1px solid #e4e7ec;border-radius:6px;padding:.75rem 1rem;max-height:260px;overflow-y:auto;margin:0"></pre>
-        </div>
-        <div id="preview-recipient-summary" style="margin-bottom:1rem;font-size:.85rem;color:#344054"></div>
-        <div id="preview-source-badges" style="margin-bottom:1rem;display:flex;gap:.5rem;flex-wrap:wrap"></div>
-        <div class="form-actions">
-          <button id="preview-send-btn" class="btn-primary">Confirm and Send</button>
-          <button id="preview-edit-btn" class="btn-secondary">Edit Notes</button>
-          <button id="preview-cancel-btn" class="btn-secondary">Cancel</button>
-        </div>
-        <p id="preview-send-error" class="form-error hidden"></p>
       </div>
-    </dialog>
+    </div>
+  </dialog>
 
-    <script src="{{ url_for('portal_web.static', filename='portal.js') }}"></script>
-  </body>
+  <script src="{{ url_for('portal_web.static', filename='portal.js') }}"></script>
+</body>
 </html>

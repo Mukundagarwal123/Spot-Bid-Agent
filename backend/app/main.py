@@ -7,7 +7,8 @@ from flask import Flask, g, request
 
 from app.core.logging import configure_logging, correlation_id_var
 from app.core.settings import settings
-from app.db.base import create_tables
+from app.db.base import create_tables, engine
+from app.db.migrations import run_column_migrations
 from app.health.routes import health_bp
 from app.portal.api import portal_api_bp
 from app.portal.carriers.routes import carriers_api_bp
@@ -39,7 +40,14 @@ def create_app() -> Flask:
         return response
 
     create_tables()
+    run_column_migrations(engine)
     logger.info("startup", env=settings.app_env, db=settings.database_url)
+    logger.info(
+        "startup.turvo_config",
+        turvo_mock_carriers=settings.turvo_mock_carriers,
+        turvo_db_url_set=bool(settings.turvo_db_url),
+        turvo_db_url_preview=settings.turvo_db_url[:40] if settings.turvo_db_url else None,
+    )
     logger.info(
         "startup.llm_config",
         llm_base_url=settings.llm_base_url,

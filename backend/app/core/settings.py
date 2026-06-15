@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env from the project root regardless of where the server is started from.
 # settings.py lives at backend/app/core/settings.py → parents[3] = project root.
-_ENV_FILE = str(Path(__file__).resolve().parents[3] / ".env")
+_ENV_FILE = str(Path(__file__).resolve().parents[2] / ".env")
 
 
 class Settings(BaseSettings):

@@ -10,6 +10,7 @@ webhooks_bp = Blueprint("webhooks", __name__, url_prefix="/webhooks")
 logger = structlog.get_logger(__name__)
 
 
+@webhooks_bp.post("/resend")
 @webhooks_bp.post("/resend/events")
 def resend_events():
     raw_body = request.get_data()

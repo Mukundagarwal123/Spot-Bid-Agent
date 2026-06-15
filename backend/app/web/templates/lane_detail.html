@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lane Detail — Spot Bid Portal</title>
+  <link rel="stylesheet" href="{{ url_for('portal_web.static', filename='lane_detail.css') }}" />
+</head>
+<body>
+
+  <!-- ── Nav bar ──────────────────────────────────────────────────── -->
+  <nav class="ld-nav">
+    <a class="ld-nav-back" href="/">← All Lanes</a>
+    <div class="ld-nav-center">
+      <span class="ld-nav-title" id="nav-label">Loading…</span>
+      <span class="ld-nav-sub" id="nav-sub"></span>
+    </div>
+    <div class="ld-nav-actions">
+      <button class="btn-follow-up hidden" id="follow-up-btn">Send Follow-up</button>
+      <span class="live-indicator hidden" id="live-indicator"><span class="live-dot"></span> Live</span>
+      <button class="btn-end-campaign hidden" id="end-campaign-btn">Covered / End</button>
+    </div>
+  </nav>
+
+  <!-- ── Header band ──────────────────────────────────────────────── -->
+  <div class="ld-header">
+    <div class="ld-header-top">
+      <div class="ld-lane-info">
+        <div class="ld-lane-route" id="lane-route">—</div>
+        <div class="ld-lane-chips" id="lane-meta"></div>
+        <div class="ld-notes-preview hidden" id="lane-notes-preview"></div>
+      </div>
+      <div id="lane-status-wrap"></div>
+    </div>
+    <div class="ld-stage-rail" id="stage-rail"></div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       LAUNCH WIZARD  (pre-send)
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="wizard-shell hidden" id="wizard-shell">
+
+    <!-- 3-step indicator -->
+    <div class="wizard-steps" id="wizard-steps">
+      <div class="wz-step active" data-step="1">
+        <div class="wz-step-num">1</div>
+        <div class="wz-step-label">Configure</div>
+      </div>
+      <div class="wz-step-line"></div>
+      <div class="wz-step" data-step="2">
+        <div class="wz-step-num">2</div>
+        <div class="wz-step-label">Fetching</div>
+      </div>
+      <div class="wz-step-line"></div>
+      <div class="wz-step" data-step="3">
+        <div class="wz-step-num">3</div>
+        <div class="wz-step-label">Sending</div>
+      </div>
+    </div>
+
+    <div class="wizard-body">
+
+      <!-- ── Left panel ─────────────────────────────────────────── -->
+      <div class="wizard-form-panel">
+
+        <!-- Step 1: Configure -->
+        <div class="wz-pane" id="wz-pane-1">
+          <div class="wz-pane-title">Carrier Sources</div>
+          <div class="src-summary" id="src-summary">
+            <!-- populated by JS from sessionStorage selection -->
+          </div>
+
+          <!-- Disabled channel notice -->
+          <div class="disabled-channels-notice">
+            <span class="dcn-icon">💬</span>
+            <span><strong>WhatsApp &amp; SMS</strong> — Coming soon</span>
+          </div>
+
+          <div class="manual-emails-section hidden" id="manual-emails-section">
+            <div class="wz-pane-title" style="margin-top:16px">Manual Recipients</div>
+            <div id="manual-email-rows"></div>
+            <button type="button" class="add-row-btn" id="add-manual-row-btn">+ Add Recipient</button>
+          </div>
+
+          <div class="wz-pane-title" style="margin-top:20px">Notes <span class="wz-optional">(optional)</span></div>
+          <textarea class="wz-notes" id="launch-notes" rows="3"
+            placeholder="Any special requirements or context for carriers…"></textarea>
+
+          <div id="wizard-step1-error" class="wz-error hidden"></div>
+          <button class="wz-primary-btn" id="check-carriers-btn">
+            Preview &amp; Continue &rarr;
+          </button>
+        </div>
+
+        <!-- Step 2: Fetching carriers (animated timeline) -->
+        <div class="wz-pane hidden" id="wz-pane-2">
+          <div class="wz-pane-title">Fetching Carrier Data</div>
+          <div class="fetch-timeline" id="fetch-timeline">
+            <!-- populated by JS per selected source -->
+          </div>
+          <div class="wz-total-summary hidden" id="wz-total-summary"></div>
+          <div id="wizard-step2-error" class="wz-error hidden"></div>
+          <button class="wz-primary-btn wz-send-btn hidden" id="launch-campaign-btn" disabled>
+            🚀 Send Campaign
+          </button>
+          <button class="wz-secondary-btn" id="back-to-config-btn">← Back to Configure</button>
+        </div>
+
+        <!-- Step 3: Sending animation -->
+        <div class="wz-pane hidden" id="wz-pane-3">
+          <div class="wz-sending-state">
+            <div class="wz-spinner"></div>
+            <div class="wz-sending-label">Sending campaign…</div>
+            <div class="wz-sending-sub">Dispatching emails to all selected carriers</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ── Right panel: live email preview ───────────────────── -->
+      <div class="wizard-preview-panel" id="wizard-preview-panel">
+        <div class="preview-panel-header">
+          <span class="preview-panel-title">Email Preview</span>
+          <div class="preview-panel-actions">
+            <span class="preview-panel-hint">Personalised per carrier</span>
+            <button class="edit-email-btn" id="edit-email-btn">✏️ Edit Email</button>
+          </div>
+        </div>
+        <div class="preview-subject-row" id="preview-subject-row">
+          <span class="preview-subject-label">Subject</span>
+          <span class="preview-subject-val" id="preview-subject-val">—</span>
+        </div>
+
+        <!-- Inline edit panel (hidden by default) -->
+        <div class="email-edit-panel hidden" id="email-edit-panel">
+          <div class="email-edit-field">
+            <label class="email-edit-label">Subject line</label>
+            <input type="text" class="email-edit-input" id="edit-subject"
+              placeholder="Auto-generated from lane details" />
+          </div>
+          <div class="email-edit-field">
+            <label class="email-edit-label">Custom notes for carriers</label>
+            <textarea class="email-edit-textarea" id="edit-notes-inline" rows="3"
+              placeholder="Any special requirements or context for carriers…"></textarea>
+          </div>
+        </div>
+
+        <div class="preview-iframe-wrap">
+          <iframe id="email-preview-iframe" frameborder="0" scrolling="auto"
+            title="Email preview" sandbox="allow-same-origin"></iframe>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════════
+       LIVE DASHBOARD  (post-send)
+  ════════════════════════════════════════════════════════════════ -->
+  <div class="live-dash hidden" id="live-dash">
+
+    <!-- Metrics funnel -->
+    <div class="live-metrics-row" id="live-metrics-row">
+      <div class="lm-card" id="lm-sent">
+        <div class="lm-num blue" id="lm-num-sent">—</div>
+        <div class="lm-label">Sent</div>
+      </div>
+      <div class="lm-arrow">›</div>
+      <div class="lm-card" id="lm-delivered">
+        <div class="lm-num green" id="lm-num-delivered">—</div>
+        <div class="lm-sub" id="lm-sub-delivered"></div>
+        <div class="lm-label">Delivered</div>
+      </div>
+      <div class="lm-arrow">›</div>
+      <div class="lm-card" id="lm-opened">
+        <div class="lm-num amber" id="lm-num-opened">—</div>
+        <div class="lm-sub" id="lm-sub-opened"></div>
+        <div class="lm-label">Opened</div>
+      </div>
+      <div class="lm-arrow">›</div>
+      <div class="lm-card" id="lm-replied">
+        <div class="lm-num teal" id="lm-num-replied">—</div>
+        <div class="lm-sub" id="lm-sub-replied"></div>
+        <div class="lm-label">Replied</div>
+      </div>
+      <div class="lm-arrow">›</div>
+      <div class="lm-card" id="lm-bounced">
+        <div class="lm-num red" id="lm-num-bounced">0</div>
+        <div class="lm-label">Bounced</div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div class="live-content">
+
+      <!-- Left: activity + source breakdown -->
+      <div class="live-left">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Activity Log</span>
+            <span id="log-live-indicator"></span>
+          </div>
+          <div class="activity-log" id="activity-log">
+            <div class="log-empty">Activity appears once outreach starts.</div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:14px">
+          <div class="card-header"><span class="card-title">Source Conversion</span></div>
+          <div class="source-conv-grid" id="source-conv-grid"></div>
+        </div>
+      </div>
+
+      <!-- Right: recipient table -->
+      <div class="live-right">
+        <div class="card">
+          <div class="card-header">
+            <span class="card-title">Recipients</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="recipient-badge" id="response-count">0 engaged</span>
+              <button class="export-btn" id="export-btn" title="Export CSV">⬇ Export</button>
+            </div>
+          </div>
+
+          <!-- Filters -->
+          <div class="rtab-bar" id="rtab-bar">
+            <button class="rtab active" data-tab="all">All</button>
+            <button class="rtab" data-tab="delivered">Delivered</button>
+            <button class="rtab" data-tab="opened">Opened</button>
+            <button class="rtab" data-tab="replied">Replied</button>
+            <button class="rtab" data-tab="bounced">Bounced</button>
+            <button class="rtab" data-tab="failed">Failed</button>
+            <div class="rtab-right-controls">
+              <select class="rtab-source-filter" id="source-filter">
+                <option value="all">All sources</option>
+                <option value="internal">Internal</option>
+                <option value="dat">DAT</option>
+                <option value="crr_model">CRR Model</option>
+                <option value="manual">Manual</option>
+              </select>
+              <input type="text" class="rtab-search" id="carrier-search" placeholder="Search carrier, email, phone…" />
+            </div>
+          </div>
+
+          <div id="recipient-table-wrap">
+            <div class="empty-table">No responses yet. Responses appear here as carriers open or reply.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Follow-up dialog -->
+  <dialog class="fu-dialog" id="followup-dialog">
+    <div class="fu-inner">
+      <div class="fu-header">
+        <h2>Send Follow-Up</h2>
+        <button class="fu-close" id="followup-close-btn">×</button>
+      </div>
+      <div class="fu-msg" id="followup-eligible-msg"></div>
+      <label class="fu-label">Subject Override <span class="wz-optional">(optional)</span></label>
+      <input type="text" class="fu-field" id="followup-subject" placeholder="Re: Spot Bid Opportunity…" />
+      <label class="fu-label" style="margin-top:10px">Notes <span class="wz-optional">(optional)</span></label>
+      <textarea class="fu-field" id="followup-notes" rows="2" placeholder="Add a note for carriers…"></textarea>
+      <div class="fu-actions">
+        <button class="wz-primary-btn" id="followup-send-btn">Send Follow-Up</button>
+        <button class="wz-secondary-btn" id="followup-cancel-btn">Cancel</button>
+      </div>
+      <div class="wz-error hidden" id="followup-error"></div>
+    </div>
+  </dialog>
+
+  <!-- ── Carrier Thread Slide-Over ──────────────────────────────────── -->
+  <div class="thread-overlay hidden" id="thread-overlay"></div>
+  <div class="thread-panel hidden" id="thread-panel">
+    <div class="thread-header">
+      <div class="thread-carrier-info">
+        <div class="thread-carrier-name" id="thread-carrier-name">—</div>
+        <div class="thread-carrier-email" id="thread-carrier-email">—</div>
+      </div>
+      <button class="thread-close-btn" id="thread-close-btn" title="Close">×</button>
+    </div>
+    <div class="thread-messages" id="thread-messages">
+      <div class="thread-loading" id="thread-loading">
+        <div class="thread-spinner"></div>
+        <span>Loading conversation…</span>
+      </div>
+    </div>
+    <div class="thread-compose">
+      <div class="thread-compose-header">Reply</div>
+      <input type="text" class="thread-compose-subject" id="thread-reply-subject" placeholder="Subject…" />
+      <textarea class="thread-compose-body" id="thread-reply-body" rows="4" placeholder="Type your reply…"></textarea>
+      <div class="thread-compose-footer">
+        <div class="thread-reply-error hidden" id="thread-reply-error"></div>
+        <button class="thread-send-btn" id="thread-send-btn">Send Reply ↗</button>
+      </div>
+    </div>
+  </div>
+
+  <script>window.__LANE_ID__ = {{ lane_id | tojson }};</script>
+  <script src="{{ url_for('portal_web.static', filename='lane_detail.js') }}"></script>
+</body>
+</html>

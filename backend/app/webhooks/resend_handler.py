@@ -44,25 +44,32 @@ def handle_event(
 ) -> None:
     import resend as resend_sdk
 
-    wh = resend_sdk.Webhooks(settings.resend_webhook_secret)
-    try:
-        payload = wh.verify(
-            raw_body,
-            {
-                "svix-id": svix_id,
-                "svix-timestamp": svix_ts,
-                "svix-signature": svix_signature,
-            },
-        )
-    except Exception as exc:
-        logger.warning("webhook.resend.signature_invalid", error=str(exc))
-        raise ValueError("invalid_signature") from exc
+    secret = settings.resend_webhook_secret
+    if secret:
+        try:
+            resend_sdk.Webhooks.verify({
+                "payload": raw_body.decode("utf-8"),
+                "headers": {
+                    "id":        svix_id,
+                    "timestamp": svix_ts,
+                    "signature": svix_signature,
+                },
+                "webhook_secret": secret,
+            })
+        except Exception as exc:
+            logger.warning("webhook.resend.signature_invalid", error=str(exc))
+            raise ValueError("invalid_signature") from exc
+
+    payload = json.loads(raw_body)
 
     event_type_raw: str = payload.get("type", "")
     event_type = event_type_raw.removeprefix("email.")
+    is_inbound_reply = event_type == "received"
+    # Resend sends 'email.received' for inbound replies — treat as 'replied'
+    if is_inbound_reply:
+        event_type = "replied"
 
     data = payload.get("data", {})
-    provider_message_id: str = data.get("email_id", "")
     created_at_str: str = payload.get("created_at", "")
 
     try:
@@ -70,17 +77,41 @@ def handle_event(
     except (ValueError, AttributeError):
         event_at = _utcnow()
 
-    epoch_ms = int(event_at.timestamp() * 1000)
-    idempotency_key = f"{provider_message_id}::{event_type}::{epoch_ms}"
+    if is_inbound_reply:
+        # For inbound replies, email_id is the received email's ID (not the sent message ID).
+        # Match by the sender's email address instead.
+        from_email: str = (data.get("from") or "").strip().lower()
+        epoch_ms = int(event_at.timestamp() * 1000)
+        idempotency_key = f"inbound::{from_email}::{epoch_ms}"
 
-    message = db.query(OutreachMessage).filter_by(provider_message_id=provider_message_id).first()
-    if message is None:
-        logger.info(
-            "webhook.resend.message_not_found",
-            provider_message_id=provider_message_id,
-            event_type=event_type,
+        message = (
+            db.query(OutreachMessage)
+            .filter(OutreachMessage.email_to == from_email)
+            .filter(OutreachMessage.replied_at.is_(None))
+            .order_by(OutreachMessage.sent_at.desc())
+            .first()
         )
-        return
+        if message is None:
+            logger.info(
+                "webhook.resend.inbound_reply_unmatched",
+                from_email=from_email,
+                event_type=event_type,
+            )
+            return
+        provider_message_id = str(message.provider_message_id)
+    else:
+        provider_message_id: str = data.get("email_id", "")
+        epoch_ms = int(event_at.timestamp() * 1000)
+        idempotency_key = f"{provider_message_id}::{event_type}::{epoch_ms}"
+
+        message = db.query(OutreachMessage).filter_by(provider_message_id=provider_message_id).first()
+        if message is None:
+            logger.info(
+                "webhook.resend.message_not_found",
+                provider_message_id=provider_message_id,
+                event_type=event_type,
+            )
+            return
 
     event = OutreachMessageEvent(
         id=uuid.uuid4(),

@@ -72,6 +72,10 @@ class LaneCreateRequest(BaseModel):
     stops: list[StopInput] = []
     equipment_type: EquipmentType
     pickup_date: date | None = None
+    notes: str | None = None
+    include_internal: bool = True
+    include_dat: bool = True
+    include_crr_model: bool = True
 
     @field_validator("origin_city", "destination_city")
     @classmethod
@@ -111,6 +115,7 @@ class LaneCreatedResponse(BaseModel):
     lane_id: UUID
     label: str
     status: str
+    notes: str | None
     created_at: datetime
 
 
@@ -124,6 +129,7 @@ class LaneSummary(BaseModel):
     label: str
     equipment_type: str
     status: str
+    created_at: datetime
     last_activity_at: datetime
     pickup_date: date | None
     metrics_preview: MetricsPreview
@@ -152,6 +158,7 @@ class LaneInfo(BaseModel):
     equipment_type: str
     pickup_date: date | None
     status: str
+    notes: str | None
     created_at: datetime
 
 

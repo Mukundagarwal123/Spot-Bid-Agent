@@ -8,8 +8,10 @@ import structlog
 from flask import Blueprint, current_app, g, jsonify, request
 from pydantic import ValidationError
 
+from sqlalchemy import func
+
 from app.db.base import session_scope
-from app.db.models import PortalLane
+from app.db.models import CarrierRelevancyRun, PortalLane, PortalLaneCarrierRecord
 from app.portal import service
 from app.portal.carriers import dat_service
 from app.portal.carriers.dat_schemas import DatImportRequest
@@ -202,6 +204,7 @@ def create_lane():
             lane_id=lane.id,
             label=service.make_label(lane),
             status=lane.status,
+            notes=lane.notes,
             created_at=lane.created_at,
         )
 
@@ -214,18 +217,24 @@ def create_lane():
             destination_state=lane.destination_state,
             destination_zip=lane.destination_zip,
         )
-        _run_background(_bg_fetch_internal_carriers, str(lane.id), carrier_request, request_id)
-        logger.info("lane.source_1_carriers_queued", lane_id=str(lane.id), source="turvo_internal")
+        if req.include_internal:
+            _run_background(_bg_fetch_internal_carriers, str(lane.id), carrier_request, request_id)
+            logger.info("lane.source_1_carriers_queued", lane_id=str(lane.id), source="turvo_internal")
+        else:
+            logger.info("lane.source_1_skipped_user_deselected", lane_id=str(lane.id), source="turvo_internal")
 
-        _run_background(
-            _bg_run_freightx_relevancy,
-            str(lane.id),
-            lane.origin_zip,
-            lane.destination_zip,
-            lane.equipment_type,
-            request_id,
-        )
-        logger.info("lane.source_3_carriers_queued", lane_id=str(lane.id), source="freightx_relevancy")
+        if req.include_crr_model:
+            _run_background(
+                _bg_run_freightx_relevancy,
+                str(lane.id),
+                lane.origin_zip,
+                lane.destination_zip,
+                lane.equipment_type,
+                request_id,
+            )
+            logger.info("lane.source_3_carriers_queued", lane_id=str(lane.id), source="freightx_relevancy")
+        else:
+            logger.info("lane.source_3_skipped_user_deselected", lane_id=str(lane.id), source="freightx_relevancy")
     else:
         logger.info(
             "lane.source_1_skipped_missing_zip",
@@ -248,6 +257,7 @@ def list_lanes():
                 label=service.make_label(item.lane),
                 equipment_type=item.lane.equipment_type,
                 status=item.lane.status,
+                created_at=item.lane.created_at,
                 last_activity_at=item.last_activity_at,
                 pickup_date=item.lane.pickup_date,
                 metrics_preview=MetricsPreview(
@@ -260,6 +270,34 @@ def list_lanes():
         logger.debug("lanes_listed", count=len(summaries))
         response = LanesListResponse(lanes=summaries)
     return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.get("/lanes/<uuid:lane_id>/carriers/counts")
+def get_carrier_counts(lane_id: uuid.UUID):
+    """Return stored carrier counts per source — instant DB query, no model re-run."""
+    with session_scope() as db:
+        rows = (
+            db.query(
+                PortalLaneCarrierRecord.source_type,
+                func.count().label("total"),
+            )
+            .filter(PortalLaneCarrierRecord.lane_id == lane_id)
+            .group_by(PortalLaneCarrierRecord.source_type)
+            .all()
+        )
+        counts: dict[str, int] = {r.source_type: r.total for r in rows}
+
+        # CRR model: use row_count from the latest run (pre-computed)
+        latest_run = (
+            db.query(CarrierRelevancyRun)
+            .filter_by(lane_id=lane_id)
+            .order_by(CarrierRelevancyRun.created_at.desc())
+            .first()
+        )
+        if latest_run and latest_run.row_count > 0:
+            counts["crr_model"] = latest_run.row_count
+
+    return jsonify(counts)
 
 
 @portal_api_bp.get("/lanes/<uuid:lane_id>")
@@ -299,6 +337,7 @@ def get_lane(lane_id: uuid.UUID):
                 equipment_type=detail.lane.equipment_type,
                 pickup_date=detail.lane.pickup_date,
                 status=detail.lane.status,
+                notes=detail.lane.notes,
                 created_at=detail.lane.created_at,
             ),
             stops=[

@@ -27,6 +27,7 @@ class PortalLane(Base):
     equipment_type: Mapped[str] = mapped_column(String(20), nullable=False)
     pickup_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -278,6 +279,9 @@ class OutreachMessage(Base):
     opened_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     clicked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     replied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    is_follow_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class OutreachMessageEvent(Base):

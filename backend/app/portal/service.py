@@ -3,18 +3,20 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import structlog
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    OutreachBatch,
+    OutreachMessage,
     PortalCarrierCRMSnapshot,
     PortalLane,
     PortalLaneActivityEvent,
     PortalLaneMetricsSnapshot,
     PortalLaneStop,
 )
-from app.portal import dummy_generator
 from app.portal.schemas import LaneCreateRequest
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +69,7 @@ def create_lane(db: Session, req: LaneCreateRequest) -> PortalLane:
         destination_zip=req.destination_zip,
         equipment_type=req.equipment_type.value,
         pickup_date=req.pickup_date,
+        notes=req.notes or None,
         status="new",
         created_at=now,
         updated_at=now,
@@ -86,34 +89,6 @@ def create_lane(db: Session, req: LaneCreateRequest) -> PortalLane:
             )
         )
 
-    metrics_data = dummy_generator.generate_metrics(lane_id)
-    db.add(
-        PortalLaneMetricsSnapshot(
-            id=uuid.uuid4(),
-            lane_id=lane_id,
-            generated_at=now,
-            **metrics_data,
-        )
-    )
-
-    for event in dummy_generator.generate_timeline(lane_id, now):
-        db.add(
-            PortalLaneActivityEvent(
-                id=uuid.uuid4(),
-                lane_id=lane_id,
-                **event,
-            )
-        )
-
-    for carrier in dummy_generator.generate_carrier_crm(lane_id, now):
-        db.add(
-            PortalCarrierCRMSnapshot(
-                id=uuid.uuid4(),
-                lane_id=lane_id,
-                **carrier,
-            )
-        )
-
     db.commit()
     db.refresh(lane)
     logger.info("lane_created", lane_id=str(lane_id), label=make_label(lane))
@@ -124,18 +99,50 @@ def list_lanes(db: Session) -> list[LaneListItem]:
     lanes = db.query(PortalLane).order_by(PortalLane.created_at.desc()).all()
     result: list[LaneListItem] = []
     for lane in lanes:
-        metrics = (
-            db.query(PortalLaneMetricsSnapshot).filter_by(lane_id=lane.id).first()
-        )
+        metrics = db.query(PortalLaneMetricsSnapshot).filter_by(lane_id=lane.id).first()
+
+        # For new lanes (no dummy snapshot), derive preview counts from live outreach data.
+        if metrics is None:
+            metrics = _live_metrics_snapshot(db, lane.id, now=lane.created_at)
+
         last_event = (
             db.query(PortalLaneActivityEvent)
             .filter_by(lane_id=lane.id)
             .order_by(PortalLaneActivityEvent.event_at.desc())
             .first()
         )
-        last_at = last_event.event_at if last_event else lane.created_at
+        last_at = last_event.event_at if last_event else lane.updated_at
         result.append(LaneListItem(lane=lane, metrics=metrics, last_activity_at=last_at))
     return result
+
+
+def _live_metrics_snapshot(
+    db: Session, lane_id: uuid.UUID, now: datetime
+) -> PortalLaneMetricsSnapshot | None:
+    """Build a transient metrics snapshot from live outreach data (not persisted)."""
+    batch = (
+        db.query(OutreachBatch)
+        .filter(OutreachBatch.lane_id == lane_id, OutreachBatch.test_mode.is_(False))
+        .order_by(OutreachBatch.created_at.desc())
+        .first()
+    )
+    if batch is None:
+        return None
+    messages = db.query(OutreachMessage).filter(OutreachMessage.batch_id == batch.id).all()
+    sent = len(messages)
+    replied = sum(1 for m in messages if m.replied_at)
+    return SimpleNamespace(
+        carriers_contacted=sent,
+        carriers_responded=replied,
+        emails_sent=sent,
+        emails_clicked=sum(1 for m in messages if m.clicked_at),
+        email_replies=replied,
+        sms_sent=0,
+        sms_replies=0,
+        whatsapp_sent=0,
+        whatsapp_replies=0,
+        generated_at=now,
+    )
 
 
 def get_lane_detail(db: Session, lane_id: uuid.UUID) -> LaneDetail | None:
