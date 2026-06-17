@@ -46,4 +46,4 @@ def run_freightx_model(
         # clean_zip() raises ValueError for invalid ZIP formats — surface as validation signal
         raise FreightXModelError(str(exc)) from exc
     except Exception as exc:
-        raise FreightXModelError("model_execution_failed") from exc
+        raise FreightXModelError(f"model_execution_failed: {type(exc).__name__}: {exc}") from exc

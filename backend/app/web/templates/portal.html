@@ -216,10 +216,21 @@
         </div>
       </div>
       <div id="dat-step-2" class="hidden">
-        <p style="margin-bottom:.75rem;color:#475467;font-size:.875rem">Copy text directly from DAT and paste below.</p>
-        <textarea id="dat-paste-area" rows="12"
-          style="width:100%;box-sizing:border-box;resize:vertical;font-size:.8rem;padding:.5rem .75rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
-          placeholder="Paste DAT text here..."></textarea>
+        <p style="margin-bottom:1rem;color:#475467;font-size:.875rem">Paste from DAT below. Both fields are optional — fill one or both.</p>
+        <div style="margin-bottom:.25rem">
+          <label style="font-size:.8rem;font-weight:600;color:#344054">DAT Truck Postings</label>
+          <p style="margin:.1rem 0 .4rem;font-size:.75rem;color:#667085">Copy from DAT's "Available Trucks" / truck posting view</p>
+          <textarea id="dat-truck-postings-area" rows="6"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:.78rem;padding:.45rem .65rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
+            placeholder="Paste DAT Truck Postings text here…"></textarea>
+        </div>
+        <div style="margin-top:.85rem;margin-bottom:.25rem">
+          <label style="font-size:.8rem;font-weight:600;color:#344054">DAT LaneMakers</label>
+          <p style="margin:.1rem 0 .4rem;font-size:.75rem;color:#667085">Copy from DAT's "LaneMakers" carrier recommendation view</p>
+          <textarea id="dat-lanemakers-area" rows="6"
+            style="width:100%;box-sizing:border-box;resize:vertical;font-size:.78rem;padding:.45rem .65rem;border:1px solid #d0d5dd;border-radius:6px;font-family:monospace;line-height:1.5"
+            placeholder="Paste DAT LaneMakers text here…"></textarea>
+        </div>
         <div id="dat-result-msg" class="hidden"
           style="margin:.75rem 0;padding:.5rem .75rem;border-radius:6px;font-size:.85rem"></div>
         <div class="form-actions" style="margin-top:1rem">

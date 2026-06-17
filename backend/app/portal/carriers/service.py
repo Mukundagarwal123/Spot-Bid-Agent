@@ -24,6 +24,7 @@ _SOURCE = "turvo_internal"
 def get_internal_turvo_recommendations(
     req: CarrierRecommendationRequest,
     request_id: str,
+    filter_mode: str = "city_state",
 ) -> CarrierRecommendationResponse:
     t0 = time.monotonic()
     log.info(
@@ -35,6 +36,7 @@ def get_internal_turvo_recommendations(
         destination_city=req.destination_city,
         destination_state=req.destination_state,
         destination_zip=req.destination_zip,
+        filter_mode=filter_mode,
         source=_SOURCE,
     )
 
@@ -42,6 +44,7 @@ def get_internal_turvo_recommendations(
         origin_city=req.origin_city,
         origin_state=req.origin_state,
         destination_state=req.destination_state,
+        filter_mode=filter_mode,
     )
     log.info(
         "carrier.source_1.loaded",

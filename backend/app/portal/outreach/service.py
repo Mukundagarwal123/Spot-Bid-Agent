@@ -10,6 +10,7 @@ from app.core.settings import settings
 from app.db.models import (
     CarrierOutreachRow,
     CarrierOutreachSet,
+    CarrierRelevancyRun,
     OutreachBatch,
     OutreachMessage,
     OutreachReply,
@@ -133,6 +134,31 @@ def _resolve_recipients(
         .order_by(CarrierOutreachSet.created_at.desc())
         .first()
     )
+
+    # If CRR is requested, check for a stale outreach set: the set has no CRR rows
+    # but a completed CRR run exists (i.e. the set was built before CRR finished).
+    if latest_set is not None and req.include_crr_model:
+        latest_crr_run = (
+            db.query(CarrierRelevancyRun)
+            .filter(
+                CarrierRelevancyRun.lane_id == lane_id,
+                CarrierRelevancyRun.row_count > 0,
+            )
+            .order_by(CarrierRelevancyRun.created_at.desc())
+            .first()
+        )
+        if latest_crr_run:
+            crr_row_sample = (
+                db.query(CarrierOutreachRow.id)
+                .filter(
+                    CarrierOutreachRow.outreach_set_id == latest_set.id,
+                    CarrierOutreachRow.source.notin_(["internal", "DAT", "manual"]),
+                )
+                .first()
+            )
+            if crr_row_sample is None:
+                latest_set = None  # Set has no CRR data — force rebuild
+
     if latest_set is None:
         # Try to auto-build from whatever is available
         _auto_build_outreach_set(db, lane_id, req)
@@ -151,13 +177,25 @@ def _resolve_recipients(
         .all()
     )
 
+    # Bucket rows by source first so we can apply per-source limits
+    by_source: dict[str, list[_Recipient]] = {}
     for r in rows:
         st = _normalize_source_type(r.source)
         if not _source_included(st, req):
             continue
         if not r.email or not r.email.strip():
             continue
-        recipients.append(_Recipient(carrier_name=r.carrier_name, email=r.email, row_id=r.id, source_type=st))
+        rec = _Recipient(carrier_name=r.carrier_name, email=r.email, row_id=r.id, source_type=st)
+        by_source.setdefault(st, []).append(rec)
+
+    # Apply optional per-source limits (keyed by display label, e.g. "CRR Model")
+    limits = req.source_limits or {}
+    for st, recs in by_source.items():
+        label = _SOURCE_DISPLAY.get(st, st)
+        cap = limits.get(label)
+        if cap is not None and cap < len(recs):
+            recs = recs[:cap]
+        recipients.extend(recs)
         if st not in sources_seen:
             sources_seen.append(st)
 
@@ -480,6 +518,73 @@ def end_campaign(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def export_outreach_rows(
+    db: Session,
+    lane_id: uuid.UUID,
+    include_internal: bool = True,
+    include_dat: bool = True,
+    include_crr_model: bool = True,
+    source_limits: dict[str, int] | None = None,
+) -> dict:
+    """Return all outreach rows for the latest ready set in test_emails_rows.json format."""
+    import json as _json
+
+    latest_set = (
+        db.query(CarrierOutreachSet)
+        .filter_by(lane_id=lane_id, status="ready")
+        .order_by(CarrierOutreachSet.created_at.desc())
+        .first()
+    )
+    if latest_set is None:
+        return {"lane_id": str(lane_id), "outreach_set_id": None, "rows": []}
+
+    rows = (
+        db.query(CarrierOutreachRow)
+        .filter(CarrierOutreachRow.outreach_set_id == latest_set.id)
+        .all()
+    )
+
+    limits = source_limits or {}
+    by_source: dict[str, list] = {}
+    for r in rows:
+        st = _normalize_source_type(r.source)
+        if st == "internal" and not include_internal:
+            continue
+        if st == "dat" and not include_dat:
+            continue
+        if st == "crr_model" and not include_crr_model:
+            continue
+        label = _SOURCE_DISPLAY.get(st, st)
+        by_source.setdefault(label, []).append(r)
+
+    output_rows = []
+    for label, recs in by_source.items():
+        cap = limits.get(label)
+        if cap is not None and cap < len(recs):
+            recs = recs[:cap]
+        for r in recs:
+            try:
+                src_ids = _json.loads(r.source_row_ids) if r.source_row_ids else []
+            except Exception:
+                src_ids = []
+            output_rows.append({
+                "carrier_name": r.carrier_name,
+                "dedupe_key": r.dedupe_key,
+                "email": r.email,
+                "id": str(r.id),
+                "mc_number": r.mc_number,
+                "phone": r.phone,
+                "source": r.source,
+                "source_row_ids": src_ids,
+            })
+
+    return {
+        "lane_id": str(lane_id),
+        "outreach_set_id": str(latest_set.id),
+        "rows": output_rows,
+    }
+
 
 def _latest_set_id(db: Session, lane_id: uuid.UUID) -> uuid.UUID | None:
     s = (

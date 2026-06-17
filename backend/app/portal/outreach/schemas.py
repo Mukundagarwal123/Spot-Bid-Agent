@@ -28,6 +28,7 @@ class OutreachRequest(BaseModel):
     test_mode: bool = False
     manual_emails: list[ManualEmailEntry] = []
     notes: str = ""
+    source_limits: dict[str, int] | None = None  # e.g. {"CRR Model": 500}
 
     @field_validator("manual_emails")
     @classmethod

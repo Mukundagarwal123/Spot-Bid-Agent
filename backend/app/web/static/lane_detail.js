@@ -8,17 +8,19 @@ const POLL_MS      = 5000;
 
 /* ── State ────────────────────────────────────────────────────────── */
 const state = {
-  lane:         null,
-  metrics:      null,
-  prevMetrics:  null,
-  sources:      { internal: true, dat: true, crr_model: true, manual: false },
-  notes:        "",
-  previewData:  null,
-  pollTimer:    null,
-  activeTab:    "all",
-  sourceFilter: "all",
-  searchTerm:   "",
-  allResponses: [],
+  lane:                null,
+  metrics:             null,
+  prevMetrics:         null,
+  sources:             { internal: true, dat: true, crr_model: true, manual: false },
+  notes:               "",
+  previewData:         null,
+  pollTimer:           null,
+  activeTab:           "all",
+  sourceFilter:        "all",
+  searchTerm:          "",
+  allResponses:        [],
+  internal_filter_mode: "city_state",  // "city_state" | "state_only"
+  source_limits:       {},             // e.g. {"CRR Model": 500}
 };
 
 /* ── Utility ──────────────────────────────────────────────────────── */
@@ -125,6 +127,8 @@ function renderSourceSummary() {
     .join("");
   const el = document.getElementById("src-summary");
   if (el) el.innerHTML = chips || `<span class="src-summary-none">No sources selected — go back and add a lane.</span>`;
+  // Show/hide internal filter toggle based on whether internal source is selected
+  document.getElementById("internal-filter-section")?.classList.toggle("hidden", !state.sources.internal);
 }
 
 function addManualRow(entry = null) {
@@ -289,7 +293,12 @@ async function onCheckCarriers() {
   errEl.classList.add("hidden");
 
   state.notes = document.getElementById("launch-notes").value || "";
+  state.source_limits = {};  // reset limits on each new fetch
   const manualEmails = collectManualRows();
+
+  // Read internal filter mode from radio buttons
+  state.internal_filter_mode =
+    document.querySelector('input[name="internal_filter"]:checked')?.value || "city_state";
 
   setWizardStep(2);
 
@@ -309,23 +318,47 @@ async function onCheckCarriers() {
 
   const summaryEl  = document.getElementById("wz-total-summary");
   const sendBtn    = document.getElementById("launch-campaign-btn");
+  const dlBtn      = document.getElementById("download-outreach-btn");
   summaryEl.classList.add("hidden");
   sendBtn.classList.add("hidden");
   sendBtn.disabled = true;
+  if (dlBtn) dlBtn.classList.add("hidden");
+  document.getElementById("source-limits-section")?.classList.add("hidden");
   document.getElementById("wizard-step2-error").classList.add("hidden");
+
+  // ── State-only internal rerun (if user selected broader filter) ────
+  if (state.sources.internal && state.internal_filter_mode === "state_only") {
+    _ftSetState("internal", "loading", null, "Re-fetching with state filter…");
+    try {
+      await api(`/portal/lanes/${LANE_ID}/carriers/internal-rerun`, {
+        method: "POST",
+        body: JSON.stringify({ filter_mode: "state_only" }),
+      });
+    } catch (_) { /* non-fatal — counts poll will show whatever is in DB */ }
+  }
 
   // ── Phase 1: poll DB counts until background tasks finish ──────────
   const nonManualSources = activeSources.filter(k => k !== "manual");
   if (nonManualSources.length > 0) {
-    const POLL_INTERVAL_MS = 1500;
-    const MAX_WAIT_MS      = 18000; // 18 s — covers slow RDS + enrichment
+    const POLL_INTERVAL_MS = 2000;
+    const MAX_WAIT_MS      = 150000; // 2.5 min — DAT LLM can take 60-90 s
     const deadline         = Date.now() + MAX_WAIT_MS;
     const resolved         = new Set();
 
-    // First check immediately, then every 1.5 s
+    // Show "processing" immediately for DAT if it was submitted
+    if (activeSources.includes("dat")) {
+      _ftSetState("dat", "loading", 0, "Processing paste… (~60 s)");
+    }
+
+    // Poll until all sources resolve or deadline, keeping DAT alive while pending
     while (Date.now() < deadline) {
       try {
         const counts = await api(`/portal/lanes/${LANE_ID}/carriers/counts`);
+
+        if (counts.dat_pending) {
+          _ftSetState("dat", "loading", 0, "Processing paste… (~60 s)");
+        }
+
         nonManualSources.forEach(k => {
           if (resolved.has(k)) return;
           const n = counts[k] ?? 0;
@@ -334,10 +367,15 @@ async function onCheckCarriers() {
             resolved.add(k);
           }
         });
-        if (resolved.size === nonManualSources.length) break;
+
+        // Done when all sources resolved and no DAT still pending
+        if (resolved.size === nonManualSources.length && !counts.dat_pending) break;
+
+        // If nothing is pending (no dat_pending, all non-dat resolved) give up early
+        const nonDatPending = nonManualSources.filter(k => k !== "dat" && !resolved.has(k));
+        if (!counts.dat_pending && nonDatPending.length === 0) break;
       } catch (_) { /* keep polling */ }
 
-      if (Date.now() + POLL_INTERVAL_MS >= deadline) break;
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
     }
 
@@ -376,9 +414,11 @@ async function onCheckCarriers() {
       summaryEl.innerHTML = `<div class="wz-total-num">${total}</div>
         <div class="wz-total-label">email${total !== 1 ? "s" : ""} ready to send</div>`;
       summaryEl.classList.remove("hidden");
+      buildSourceLimitInputs(preview);
       sendBtn.textContent = `🚀 Send Campaign — ${total} email${total !== 1 ? "s" : ""}`;
       sendBtn.disabled = false;
       sendBtn.classList.remove("hidden");
+      if (dlBtn) dlBtn.classList.remove("hidden");
     } else {
       const errEl2 = document.getElementById("wizard-step2-error");
       errEl2.textContent = "No valid recipients found for selected sources.";
@@ -415,6 +455,7 @@ async function onLaunchCampaign() {
         test_mode:         false,
         manual_emails:     collectManualRows(),
         notes:             state.notes,
+        source_limits:     Object.keys(state.source_limits).length ? state.source_limits : null,
       }),
     });
 
@@ -823,6 +864,87 @@ async function onSendCarrierReply() {
   }
 }
 
+/* ── Per-source send limits ───────────────────────────────────────── */
+function buildSourceLimitInputs(preview) {
+  const section   = document.getElementById("source-limits-section");
+  const inputsDiv = document.getElementById("source-limit-inputs");
+  const bySource  = preview.recipient_count_by_source || {};
+  const sources   = Object.entries(bySource).filter(([, c]) => c > 0);
+  if (!sources.length) { section?.classList.add("hidden"); return; }
+
+  // Default limits = max from each source
+  sources.forEach(([label, count]) => {
+    if (!(label in state.source_limits)) state.source_limits[label] = count;
+  });
+
+  inputsDiv.innerHTML = sources.map(([label, count]) => {
+    const id = `limit-${label.replace(/\s+/g, "-")}`;
+    const cur = state.source_limits[label] ?? count;
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:7px">
+      <label for="${id}" style="font-size:12px;color:#475569;width:90px;flex-shrink:0">${label}</label>
+      <input type="number" id="${id}" class="src-limit-input"
+             data-source="${label}" data-max="${count}"
+             value="${cur}" min="1" max="${count}"
+             style="width:75px;padding:4px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:13px;text-align:right" />
+      <span style="font-size:11px;color:#94a3b8">/ ${count.toLocaleString()}</span>
+    </div>`;
+  }).join("");
+
+  section?.classList.remove("hidden");
+  inputsDiv.querySelectorAll(".src-limit-input").forEach(inp =>
+    inp.addEventListener("input", _onLimitChange)
+  );
+  _updateLimitsTotal();
+}
+
+function _onLimitChange(e) {
+  const label = e.target.dataset.source;
+  const max   = parseInt(e.target.dataset.max, 10);
+  let   val   = parseInt(e.target.value, 10);
+  if (isNaN(val) || val < 1) val = 1;
+  if (val > max) { val = max; e.target.value = val; }
+  state.source_limits[label] = val;
+  _updateLimitsTotal();
+  const total = Object.values(state.source_limits).reduce((s, v) => s + v, 0);
+  const sendBtn = document.getElementById("launch-campaign-btn");
+  if (sendBtn && !sendBtn.classList.contains("hidden"))
+    sendBtn.textContent = `🚀 Send Campaign — ${total.toLocaleString()} email${total !== 1 ? "s" : ""}`;
+}
+
+function _updateLimitsTotal() {
+  const total = Object.values(state.source_limits).reduce((s, v) => s + v, 0);
+  const el = document.getElementById("limits-total-count");
+  if (el) el.textContent = total.toLocaleString();
+}
+
+/* ── Download outreach JSON ───────────────────────────────────────── */
+async function downloadOutreachJson() {
+  const btn = document.getElementById("download-outreach-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "⏳"; }
+  try {
+    const params = new URLSearchParams({
+      include_internal:  state.sources.internal  ? "true" : "false",
+      include_dat:       state.sources.dat        ? "true" : "false",
+      include_crr_model: state.sources.crr_model  ? "true" : "false",
+    });
+    if (Object.keys(state.source_limits).length)
+      params.set("source_limits", JSON.stringify(state.source_limits));
+
+    const data = await api(`/portal/lanes/${LANE_ID}/outreach/export?${params}`);
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `outreach_${LANE_ID}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert("Download failed: " + (err?.payload?.detail || err?.message || "unknown error"));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = "⬇ JSON"; }
+  }
+}
+
 /* ── Init ─────────────────────────────────────────────────────────── */
 async function init() {
   loadSession();
@@ -875,16 +997,18 @@ async function init() {
 
     initEditEmailPanel();
 
-    // Step 1 → 2 (kept for Back-to-Configure return path)
+    // Step 1 → 2
     document.getElementById("check-carriers-btn").addEventListener("click", onCheckCarriers);
     // Step 2 back
     document.getElementById("back-to-config-btn").addEventListener("click", () => setWizardStep(1));
     // Step 2 → 3 (send directly)
     document.getElementById("launch-campaign-btn").addEventListener("click", onLaunchCampaign);
+    // Download outreach JSON
+    document.getElementById("download-outreach-btn")?.addEventListener("click", downloadOutreachJson);
 
-    // Skip the configure screen — go straight to fetching
+    // Start on the configure step so the user sees sources + internal filter
     debouncedPreview();
-    onCheckCarriers();
+    setWizardStep(1);
   }
 
   // Recipient tab bar

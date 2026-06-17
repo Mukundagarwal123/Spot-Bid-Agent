@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import settings
 from app.db.models import CarrierRelevancyRecord, CarrierRelevancyRun, PortalLane, PortalLaneCarrierRecord, PortalLaneCarrierSource
+import json as _json
+
 from app.portal.carriers.dat_schemas import CarrierRecordItem, CarrierRecordsResponse, DatImportResponse
-from app.portal.carriers.source_2_dat.parser import DatParseError, parse_dat_text
+from app.portal.carriers.source_2_dat.parser import DatParseError, parse_lanemakers, parse_truck_postings
 
 # Avoid circular import — CarrierResult is imported lazily inside the function
 from typing import TYPE_CHECKING
@@ -23,11 +25,40 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+def create_pending_dat_source(
+    db: Session,
+    lane_id: uuid.UUID,
+    truck_postings_text: str,
+    lanemakers_text: str,
+) -> uuid.UUID:
+    """Write a 'pending' source record immediately so the UI knows DAT is processing."""
+    source_id = uuid.uuid4()
+    raw_payload = _json.dumps({
+        "truck_postings": truck_postings_text,
+        "lanemakers": lanemakers_text,
+    })
+    db.add(
+        PortalLaneCarrierSource(
+            id=source_id,
+            lane_id=lane_id,
+            source_type="dat",
+            raw_payload=raw_payload,
+            parsed_count=0,
+            status="pending",
+            created_at=_utcnow(),
+        )
+    )
+    db.commit()
+    return source_id
+
+
 def create_dat_import(
     db: Session,
     lane_id: uuid.UUID,
-    raw_text: str,
+    truck_postings_text: str,
+    lanemakers_text: str,
     request_id: str = "",
+    source_id: uuid.UUID | None = None,
 ) -> DatImportResponse:
     lane = db.query(PortalLane).filter_by(id=lane_id).first()
     if lane is None:
@@ -36,7 +67,19 @@ def create_dat_import(
     logger.info("dat_import_received", lane_id=str(lane_id), request_id=request_id, source="dat")
     logger.info("dat_parse_started", lane_id=str(lane_id), request_id=request_id, source="dat")
 
-    rows = parse_dat_text(raw_text, settings)
+    try:
+        rows = []
+        if truck_postings_text.strip():
+            rows.extend(parse_truck_postings(truck_postings_text, settings))
+        if lanemakers_text.strip():
+            rows.extend(parse_lanemakers(lanemakers_text, settings))
+    except Exception as exc:
+        if source_id:
+            src = db.query(PortalLaneCarrierSource).filter_by(id=source_id).first()
+            if src:
+                src.status = "error"
+                db.commit()
+        raise
 
     logger.info(
         "dat_parse_completed",
@@ -47,19 +90,33 @@ def create_dat_import(
     )
 
     now = _utcnow()
-    source_id = uuid.uuid4()
+    if source_id is None:
+        source_id = uuid.uuid4()
 
-    source = PortalLaneCarrierSource(
-        id=source_id,
-        lane_id=lane_id,
-        source_type="dat",
-        raw_payload=raw_text,
-        parsed_count=len(rows),
-        status="ok",
-        created_at=now,
-    )
-    db.add(source)
-    db.flush()
+    # If we pre-created a pending source, update it; otherwise insert fresh
+    existing_source = db.query(PortalLaneCarrierSource).filter_by(id=source_id).first()
+    if existing_source:
+        existing_source.parsed_count = len(rows)
+        existing_source.status = "ok"
+        db.flush()
+    else:
+        source_id = uuid.uuid4()
+        raw_payload = _json.dumps({
+            "truck_postings": truck_postings_text,
+            "lanemakers": lanemakers_text,
+        })
+        db.add(
+            PortalLaneCarrierSource(
+                id=source_id,
+                lane_id=lane_id,
+                source_type="dat",
+                raw_payload=raw_payload,
+                parsed_count=len(rows),
+                status="ok",
+                created_at=now,
+            )
+        )
+        db.flush()
 
     for row in rows:
         db.add(

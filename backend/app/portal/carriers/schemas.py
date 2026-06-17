@@ -6,12 +6,12 @@ from pydantic import BaseModel, model_validator
 
 
 class CarrierRecommendationRequest(BaseModel):
-    origin_city: str
-    origin_state: str
-    origin_zip: str
-    destination_city: str
-    destination_state: str
-    destination_zip: str
+    origin_city: str = ""
+    origin_state: str = ""
+    origin_zip: str = ""
+    destination_city: str = ""
+    destination_state: str = ""
+    destination_zip: str = ""
 
     @model_validator(mode="before")
     @classmethod
@@ -21,10 +21,9 @@ class CarrierRecommendationRequest(BaseModel):
         trimmed = {}
         for k, v in values.items():
             if isinstance(v, str):
-                stripped = v.strip()
-                trimmed[k] = stripped if stripped else None
+                trimmed[k] = v.strip()
             else:
-                trimmed[k] = v
+                trimmed[k] = v if v is not None else ""
         return trimmed
 
 

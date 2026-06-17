@@ -70,6 +70,19 @@
             <!-- populated by JS from sessionStorage selection -->
           </div>
 
+          <!-- Internal filter toggle (shown only when Internal is selected) -->
+          <div id="internal-filter-section" class="hidden" style="margin-top:12px;padding:10px 12px;background:#f0f7ff;border:1px solid #c7d9f0;border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:#1e40af;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Internal DB Filter</div>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1e293b;cursor:pointer;margin-bottom:6px">
+              <input type="radio" name="internal_filter" value="city_state" checked style="accent-color:#1d4ed8" />
+              <span>Origin City + State <span style="color:#64748b">→</span> Dest State <span style="color:#94a3b8;font-size:11px">(precise)</span></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#1e293b;cursor:pointer">
+              <input type="radio" name="internal_filter" value="state_only" style="accent-color:#1d4ed8" />
+              <span>Origin State <span style="color:#64748b">→</span> Dest State <span style="color:#94a3b8;font-size:11px">(broader — more results)</span></span>
+            </label>
+          </div>
+
           <!-- Disabled channel notice -->
           <div class="disabled-channels-notice">
             <span class="dcn-icon">💬</span>
@@ -99,10 +112,26 @@
             <!-- populated by JS per selected source -->
           </div>
           <div class="wz-total-summary hidden" id="wz-total-summary"></div>
+
+          <!-- Per-source send limits (shown after counts load) -->
+          <div id="source-limits-section" class="hidden" style="margin-top:16px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px">
+            <div style="font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px">Adjust Send Limits</div>
+            <div id="source-limit-inputs">
+              <!-- populated by JS per source -->
+            </div>
+            <div style="margin-top:10px;font-size:12px;color:#64748b">Total to send: <strong id="limits-total-count">—</strong></div>
+          </div>
+
           <div id="wizard-step2-error" class="wz-error hidden"></div>
-          <button class="wz-primary-btn wz-send-btn hidden" id="launch-campaign-btn" disabled>
-            🚀 Send Campaign
-          </button>
+
+          <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap">
+            <button class="wz-primary-btn wz-send-btn hidden" id="launch-campaign-btn" disabled style="margin-top:0;flex:1;min-width:200px">
+              🚀 Send Campaign
+            </button>
+            <button class="wz-icon-btn hidden" id="download-outreach-btn" title="Download outreach list as JSON" style="padding:10px 14px;background:#fff;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;cursor:pointer;color:#475569;white-space:nowrap">
+              ⬇ JSON
+            </button>
+          </div>
           <button class="wz-secondary-btn" id="back-to-config-btn">← Back to Configure</button>
         </div>
 

@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from sqlalchemy import func
 
 from app.db.base import session_scope
-from app.db.models import CarrierRelevancyRun, PortalLane, PortalLaneCarrierRecord
+from app.db.models import CarrierRelevancyRun, PortalLane, PortalLaneCarrierRecord, PortalLaneCarrierSource
 from app.portal import service
 from app.portal.carriers import dat_service
 from app.portal.carriers.dat_schemas import DatImportRequest
@@ -77,15 +77,41 @@ def _bg_fetch_internal_carriers(
 
 def _bg_process_dat_import(
     lane_id: uuid.UUID,
-    raw_text: str,
+    truck_postings_text: str,
+    lanemakers_text: str,
     request_id: str,
+    source_id: uuid.UUID | None = None,
 ) -> None:
     with session_scope() as db:
-        dat_service.create_dat_import(db, lane_id, raw_text, request_id)
+        dat_service.create_dat_import(db, lane_id, truck_postings_text, lanemakers_text, request_id, source_id)
 
 
 _PORTAL_TO_FREIGHTX_EQUIP = {"dry_van": "dryvan"}
 _FREIGHTX_SUPPORTED_EQUIP = {"dryvan", "reefer", "flatbed"}
+
+
+def _bg_fetch_internal_carriers_rerun(
+    lane_id_str: str,
+    carrier_request: CarrierRecommendationRequest,
+    filter_mode: str,
+    request_id: str,
+) -> None:
+    carrier_response = get_internal_turvo_recommendations(
+        carrier_request, request_id=request_id, filter_mode=filter_mode
+    )
+    logger.info(
+        "lane.source_1_carriers_reloaded",
+        lane_id=lane_id_str,
+        request_id=request_id,
+        carrier_count=len(carrier_response.carriers),
+        filter_mode=filter_mode,
+        source="turvo_internal",
+    )
+    if carrier_response.carriers:
+        with session_scope() as db:
+            dat_service.save_internal_carriers(
+                db, uuid.UUID(lane_id_str), carrier_response.carriers
+            )
 
 
 def _bg_run_freightx_relevancy(
@@ -287,6 +313,11 @@ def get_carrier_counts(lane_id: uuid.UUID):
         )
         counts: dict[str, int] = {r.source_type: r.total for r in rows}
 
+        # Check for a DAT import that is still processing (pending status)
+        dat_pending = db.query(PortalLaneCarrierSource).filter_by(
+            lane_id=lane_id, source_type="dat", status="pending"
+        ).first() is not None
+
         # CRR model: use row_count from the latest run (pre-computed)
         latest_run = (
             db.query(CarrierRelevancyRun)
@@ -297,7 +328,7 @@ def get_carrier_counts(lane_id: uuid.UUID):
         if latest_run and latest_run.row_count > 0:
             counts["crr_model"] = latest_run.row_count
 
-    return jsonify(counts)
+    return jsonify({**counts, "dat_pending": dat_pending})
 
 
 @portal_api_bp.get("/lanes/<uuid:lane_id>")
@@ -368,13 +399,23 @@ def create_dat_import(lane_id: uuid.UUID):
     except ValidationError as exc:
         return _validation_error(exc)
 
-    # Quick synchronous check — lane must exist before we accept the job
+    # Pre-create a 'pending' source record so UI can see DAT is processing
     with session_scope() as db:
         if db.query(PortalLane).filter_by(id=lane_id).first() is None:
             return jsonify({"detail": "Lane not found"}), 404
+        source_id = dat_service.create_pending_dat_source(
+            db, lane_id, req.truck_postings_text, req.lanemakers_text
+        )
 
     # Fire LLM parsing in background and return immediately
-    _run_background(_bg_process_dat_import, lane_id, req.raw_text, request_id)
+    _run_background(
+        _bg_process_dat_import,
+        lane_id,
+        req.truck_postings_text,
+        req.lanemakers_text,
+        request_id,
+        source_id,
+    )
     logger.info("dat_import_queued", lane_id=str(lane_id), request_id=request_id, source="dat")
 
     return jsonify({"lane_id": str(lane_id), "source": "dat", "status": "processing"}), 202
@@ -388,6 +429,44 @@ def get_carrier_records(lane_id: uuid.UUID):
         if response is None:
             return jsonify({"detail": "Lane not found"}), 404
     return jsonify(response.model_dump(mode="json"))
+
+
+@portal_api_bp.post("/lanes/<uuid:lane_id>/carriers/internal-rerun")
+def rerun_internal_carriers(lane_id: uuid.UUID):
+    """Re-fetch internal carriers with a chosen filter mode (city_state or state_only)."""
+    payload = request.get_json(silent=True) or {}
+    request_id = getattr(g, "correlation_id", "")
+    filter_mode = str(payload.get("filter_mode", "city_state")).strip()
+    if filter_mode not in ("city_state", "state_only"):
+        filter_mode = "city_state"
+
+    with session_scope() as db:
+        lane = db.query(PortalLane).filter_by(id=lane_id).first()
+        if lane is None:
+            return jsonify({"detail": "Lane not found"}), 404
+        carrier_request = CarrierRecommendationRequest(
+            origin_city=lane.origin_city or "",
+            origin_state=lane.origin_state or "",
+            origin_zip=lane.origin_zip or "",
+            destination_city=lane.destination_city or "",
+            destination_state=lane.destination_state or "",
+            destination_zip=lane.destination_zip or "",
+        )
+
+    _run_background(
+        _bg_fetch_internal_carriers_rerun,
+        str(lane_id),
+        carrier_request,
+        filter_mode,
+        request_id,
+    )
+    logger.info(
+        "lane.source_1_rerun_queued",
+        lane_id=str(lane_id),
+        filter_mode=filter_mode,
+        source="turvo_internal",
+    )
+    return jsonify({"lane_id": str(lane_id), "filter_mode": filter_mode, "status": "processing"}), 202
 
 
 @portal_api_bp.post("/lanes/<uuid:lane_id>/freightx-relevancy")

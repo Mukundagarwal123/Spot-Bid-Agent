@@ -121,6 +121,31 @@ def get_outreach_metrics(lane_id: uuid.UUID):
     return jsonify(result.model_dump(mode="json")), 200
 
 
+@outreach_bp.get("/lanes/<uuid:lane_id>/outreach/export")
+def export_outreach_rows(lane_id: uuid.UUID):
+    import json as _json
+    include_internal = request.args.get("include_internal", "true").lower() != "false"
+    include_dat = request.args.get("include_dat", "true").lower() != "false"
+    include_crr_model = request.args.get("include_crr_model", "true").lower() != "false"
+    raw_limits = request.args.get("source_limits", "")
+    source_limits: dict[str, int] | None = None
+    if raw_limits:
+        try:
+            source_limits = {k: int(v) for k, v in _json.loads(raw_limits).items()}
+        except Exception:
+            pass
+
+    with session_scope() as db:
+        result = outreach_service.export_outreach_rows(
+            db, lane_id,
+            include_internal=include_internal,
+            include_dat=include_dat,
+            include_crr_model=include_crr_model,
+            source_limits=source_limits,
+        )
+    return jsonify(result), 200
+
+
 @outreach_bp.get("/lanes/<uuid:lane_id>/outreach/thread")
 def get_carrier_thread(lane_id: uuid.UUID):
     email = request.args.get("email", "").strip()

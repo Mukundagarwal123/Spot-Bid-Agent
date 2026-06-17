@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, model_validator
 
 
 class DatImportRequest(BaseModel):
-    raw_text: str
+    truck_postings_text: str = ""
+    lanemakers_text: str = ""
 
-    @field_validator("raw_text")
-    @classmethod
-    def raw_text_non_empty(cls, v: str) -> str:
-        if not v.strip():
-            raise ValueError("DAT text is required")
-        return v
+    @model_validator(mode="after")
+    def at_least_one_required(self) -> "DatImportRequest":
+        if not self.truck_postings_text.strip() and not self.lanemakers_text.strip():
+            raise ValueError("At least one of truck_postings_text or lanemakers_text is required")
+        return self
 
 
 class DatImportResponse(BaseModel):

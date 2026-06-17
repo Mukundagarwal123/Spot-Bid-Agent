@@ -42,19 +42,15 @@ def handle_event(
     svix_ts: str,
     svix_signature: str,
 ) -> None:
-    import resend as resend_sdk
-
     secret = settings.resend_webhook_secret
     if secret:
         try:
-            resend_sdk.Webhooks.verify({
-                "payload": raw_body.decode("utf-8"),
-                "headers": {
-                    "id":        svix_id,
-                    "timestamp": svix_ts,
-                    "signature": svix_signature,
-                },
-                "webhook_secret": secret,
+            from svix.webhooks import Webhook as SvixWebhook
+            wh = SvixWebhook(secret)
+            wh.verify(raw_body, {
+                "svix-id":        svix_id,
+                "svix-timestamp": svix_ts,
+                "svix-signature": svix_signature,
             })
         except Exception as exc:
             logger.warning("webhook.resend.signature_invalid", error=str(exc))

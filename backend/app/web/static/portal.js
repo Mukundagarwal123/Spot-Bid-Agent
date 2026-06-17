@@ -324,7 +324,7 @@ function showDatStep(step) {
   if (msg) msg.classList.add("hidden");
 }
 
-async function submitDatImport(laneId, rawText) {
+async function submitDatImport(laneId, truckPostingsText, laneMakersText) {
   const submitBtn = document.getElementById("dat-submit-btn");
   const resultMsg = document.getElementById("dat-result-msg");
   resultMsg.classList.add("hidden");
@@ -333,7 +333,7 @@ async function submitDatImport(laneId, rawText) {
   try {
     await api(`/portal/lanes/${laneId}/dat-imports`, {
       method: "POST",
-      body: JSON.stringify({ raw_text: rawText }),
+      body: JSON.stringify({ truck_postings_text: truckPostingsText, lanemakers_text: laneMakersText }),
     });
     resultMsg.textContent = "✓ Submitted — redirecting to lane…";
     resultMsg.style.background = "#ecfdf5";
@@ -406,6 +406,8 @@ async function onCreateLane(event) {
 
     // Only show DAT import dialog if user actually selected DAT
     if (state.modalSources.dat) {
+      document.getElementById("dat-truck-postings-area").value = "";
+      document.getElementById("dat-lanemakers-area").value = "";
       showDatStep(1);
       document.getElementById("dat-prompt-dialog").showModal();
     } else {
@@ -474,7 +476,6 @@ async function init() {
     document.getElementById(id)?.addEventListener("input", schedulePreviewUpdate);
   });
 
-  // DAT dialog
   document.getElementById("dat-no-btn").addEventListener("click", () => {
     document.getElementById("dat-prompt-dialog").close();
     window.location.href = `/lanes/${state.pendingLaneId}`;
@@ -482,16 +483,17 @@ async function init() {
   document.getElementById("dat-yes-btn").addEventListener("click", () => showDatStep(2));
   document.getElementById("dat-back-btn").addEventListener("click", () => showDatStep(1));
   document.getElementById("dat-submit-btn").addEventListener("click", async () => {
-    const raw = document.getElementById("dat-paste-area").value;
-    if (!raw.trim()) {
+    const truckPostings = document.getElementById("dat-truck-postings-area").value;
+    const lanemakers = document.getElementById("dat-lanemakers-area").value;
+    if (!truckPostings.trim() && !lanemakers.trim()) {
       const msg = document.getElementById("dat-result-msg");
-      msg.textContent = "Please paste DAT text before submitting.";
+      msg.textContent = "Please paste at least one of Truck Postings or LaneMakers text before submitting.";
       msg.style.background = "#fef2f2";
       msg.style.color = "#991b1b";
       msg.classList.remove("hidden");
       return;
     }
-    await submitDatImport(state.pendingLaneId, raw);
+    await submitDatImport(state.pendingLaneId, truckPostings, lanemakers);
   });
 
   // Load lanes

@@ -39,11 +39,25 @@ _SQL = text(
     """
 )
 
+_SQL_STATE_ONLY = text(
+    """
+    SELECT carrier
+    FROM public.covered_loads
+    WHERE lower(coalesce(origin_state, '')) = lower(:origin_state)
+      AND lower(coalesce(destination_state, '')) = lower(:destination_state)
+      AND carrier IS NOT NULL
+      AND btrim(carrier) <> ''
+    GROUP BY carrier
+    ORDER BY count(*) DESC, max(covered_date) DESC;
+    """
+)
+
 
 def query_covered_loads(
     origin_city: str,
     origin_state: str,
     destination_state: str,
+    filter_mode: str = "city_state",
 ) -> list[str]:
     if settings.turvo_mock_carriers:
         return _MOCK_CARRIERS
@@ -52,12 +66,21 @@ def query_covered_loads(
     if engine is None:
         return []
     with engine.connect() as conn:
-        rows = conn.execute(
-            _SQL,
-            {
-                "origin_city": origin_city,
-                "origin_state": origin_state,
-                "destination_state": destination_state,
-            },
-        ).fetchall()
+        if filter_mode == "state_only":
+            rows = conn.execute(
+                _SQL_STATE_ONLY,
+                {
+                    "origin_state": origin_state,
+                    "destination_state": destination_state,
+                },
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                _SQL,
+                {
+                    "origin_city": origin_city,
+                    "origin_state": origin_state,
+                    "destination_state": destination_state,
+                },
+            ).fetchall()
     return [row[0] for row in rows]
