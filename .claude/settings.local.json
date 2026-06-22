@@ -36,7 +36,12 @@
       "Bash(python -c \"from app.main import app; print\\('App loaded OK'\\)\")",
       "Bash(python -m pytest tests/test_outreach.py -v)",
       "Bash(python -m pytest -v)",
-      "Bash(python -c \"from app.main import app; from app.core.settings import settings; print\\('sender:', repr\\(settings.resend_sender\\)\\)\")"
+      "Bash(python -c \"from app.main import app; from app.core.settings import settings; print\\('sender:', repr\\(settings.resend_sender\\)\\)\")",
+      "WebFetch(domain:verifox.ai)",
+      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('spot_bid_agent.db'\\); rows = conn.execute\\('SELECT name FROM sqlite_master WHERE type=\\\\\"table\\\\\"'\\).fetchall\\(\\); print\\([r[0] for r in rows]\\); conn.close\\(\\)\")",
+      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('spot_bid_agent.db'\\); tables = conn.execute\\('SELECT name FROM sqlite_master WHERE type=\\\\\"table\\\\\"'\\).fetchall\\(\\); print\\([r[0] for r in tables]\\); conn.close\\(\\)\")",
+      "Bash(python -c \"import sqlite3; conn = sqlite3.connect\\('spot_bid_agent.db'\\); print\\('lanes:', conn.execute\\('SELECT COUNT\\(*\\) FROM portal_lanes'\\).fetchone\\(\\)[0]\\); print\\('outreach_rows:', conn.execute\\('SELECT COUNT\\(*\\) FROM carrier_outreach_rows'\\).fetchone\\(\\)[0]\\); print\\('cache:', conn.execute\\('SELECT COUNT\\(*\\) FROM email_verification_cache'\\).fetchone\\(\\)[0]\\); conn.close\\(\\)\")",
+      "WebFetch(domain:resend.com)"
     ]
   }
 }

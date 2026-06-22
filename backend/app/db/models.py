@@ -299,6 +299,17 @@ class OutreachMessageEvent(Base):
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
 
 
+class BouncedEmail(Base):
+    """Global bounce list — emails that Resend has reported as bounced."""
+
+    __tablename__ = "bounced_emails"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
+    bounced_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    provider_message_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
 class OutreachReply(Base):
     """Inbound reply from a carrier, matched back to an outreach message when possible."""
 

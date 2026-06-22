@@ -30,3 +30,13 @@ def run_column_migrations(engine: Engine) -> None:
         if "is_follow_up" not in cols:
             conn.execute(text("ALTER TABLE outreach_messages ADD COLUMN is_follow_up BOOLEAN NOT NULL DEFAULT 0"))
             logger.info("migration.applied", table="outreach_messages", column="is_follow_up")
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bounced_emails (
+                id TEXT NOT NULL PRIMARY KEY,
+                email VARCHAR(254) NOT NULL UNIQUE,
+                bounced_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                provider_message_id VARCHAR(100)
+            )
+        """))
+        logger.info("migration.applied", table="bounced_emails", action="create_if_not_exists")

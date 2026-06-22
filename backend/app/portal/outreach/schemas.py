@@ -61,6 +61,7 @@ class PreviewResponse(BaseModel):
     recipient_count_by_source: dict[str, int]
     sources_included: list[str]
     test_mode: bool
+    bounced_count: int = 0
 
 
 class OutreachBatchResponse(BaseModel):

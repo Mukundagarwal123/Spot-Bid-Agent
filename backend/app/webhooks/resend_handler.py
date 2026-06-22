@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.settings import settings
-from app.db.models import OutreachMessage, OutreachMessageEvent
+from app.db.models import BouncedEmail, OutreachMessage, OutreachMessageEvent
 
 logger = structlog.get_logger(__name__)
 
@@ -134,6 +134,19 @@ def handle_event(
     ts_field = _TIMESTAMP_FIELD.get(event_type)
     if ts_field and getattr(message, ts_field) is None:
         setattr(message, ts_field, event_at)
+
+    # Record bounced recipient so future campaigns skip this address
+    if event_type == "bounced":
+        bounced_email = message.email_to.strip().lower()
+        existing = db.query(BouncedEmail).filter_by(email=bounced_email).first()
+        if existing is None:
+            db.add(BouncedEmail(
+                id=uuid.uuid4(),
+                email=bounced_email,
+                bounced_at=event_at,
+                provider_message_id=message.provider_message_id,
+            ))
+            logger.info("bounce_list.added", email=bounced_email)
 
     db.commit()
 

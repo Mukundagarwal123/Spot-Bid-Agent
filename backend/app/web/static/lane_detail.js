@@ -318,7 +318,7 @@ async function onCheckCarriers() {
 
   const summaryEl  = document.getElementById("wz-total-summary");
   const sendBtn    = document.getElementById("launch-campaign-btn");
-  const dlBtn      = document.getElementById("download-outreach-btn");
+  const dlBtn       = document.getElementById("download-outreach-btn");
   summaryEl.classList.add("hidden");
   sendBtn.classList.add("hidden");
   sendBtn.disabled = true;
@@ -403,16 +403,22 @@ async function onCheckCarriers() {
     activeSources.forEach(k => {
       const count = preview.recipient_count_by_source?.[SRC_LABEL[k]] ?? 0;
       if (count > 0) {
-        _ftSetState(k, "ready", count, `${count} email${count !== 1 ? "s" : ""} ready ✓`);
+        _ftSetState(k, "ready", count, `${count} email${count !== 1 ? "s" : ""} ready`);
       } else {
-        _ftSetState(k, null, 0, "No valid emails for this lane");
+        _ftSetState(k, null, 0, "No emails for this lane");
       }
     });
 
-    const total = preview.recipient_count;
+    const total   = preview.recipient_count;
+    const bounced = preview.bounced_count ?? 0;
+
     if (total > 0) {
+      const bouncedNote = bounced > 0
+        ? `<div class="wz-skipped-notice">${bounced} email${bounced !== 1 ? "s" : ""} skipped — previously bounced</div>`
+        : "";
       summaryEl.innerHTML = `<div class="wz-total-num">${total}</div>
-        <div class="wz-total-label">email${total !== 1 ? "s" : ""} ready to send</div>`;
+        <div class="wz-total-label">email${total !== 1 ? "s" : ""} ready to send</div>
+        ${bouncedNote}`;
       summaryEl.classList.remove("hidden");
       buildSourceLimitInputs(preview);
       sendBtn.textContent = `🚀 Send Campaign — ${total} email${total !== 1 ? "s" : ""}`;
@@ -944,6 +950,7 @@ async function downloadOutreachJson() {
     if (btn) { btn.disabled = false; btn.textContent = "⬇ JSON"; }
   }
 }
+
 
 /* ── Init ─────────────────────────────────────────────────────────── */
 async function init() {

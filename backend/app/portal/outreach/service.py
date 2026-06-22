@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.settings import settings
 from app.db.models import (
+    BouncedEmail,
     CarrierOutreachRow,
     CarrierOutreachSet,
     CarrierRelevancyRun,
@@ -244,11 +245,21 @@ def preview(
     notes = req.notes or (lane.notes or "")
     draft = template.generate(lane, notes)
 
+    # --- Bounce-list filter ---
+    all_emails = [r.email.strip().lower() for r in recipients]
+    bounced_set = {
+        row.email
+        for row in db.query(BouncedEmail).filter(BouncedEmail.email.in_(all_emails)).all()
+    }
+    active_recipients = [r for r in recipients if r.email.strip().lower() not in bounced_set]
+    bounced_count = len(recipients) - len(active_recipients)
+
     logger.info(
         "outreach.preview",
         request_id=request_id,
         lane_id=str(lane_id),
-        recipient_count=len(recipients),
+        recipient_count=len(active_recipients),
+        bounced_count=bounced_count,
         test_mode=req.test_mode,
         sources=sources_seen,
     )
@@ -256,7 +267,7 @@ def preview(
     display_sources = [_SOURCE_DISPLAY.get(s, s) for s in sources_seen]
 
     by_source: dict[str, int] = {}
-    for r in recipients:
+    for r in active_recipients:
         label = _SOURCE_DISPLAY.get(r.source_type, r.source_type)
         by_source[label] = by_source.get(label, 0) + 1
 
@@ -264,11 +275,12 @@ def preview(
         subject=draft.subject,
         body=draft.body,
         html_body=draft.html_body,
-        recipients=[RecipientItem(carrier_name=r.carrier_name, email=r.email) for r in recipients],
-        recipient_count=len(recipients),
+        recipients=[RecipientItem(carrier_name=r.carrier_name, email=r.email) for r in active_recipients],
+        recipient_count=len(active_recipients),
         recipient_count_by_source=by_source,
         sources_included=display_sources,
         test_mode=req.test_mode,
+        bounced_count=bounced_count,
     )
 
 
@@ -297,6 +309,17 @@ def send(
         return _batch_response(existing)
 
     recipients, sources_seen = _resolve_recipients(db, lane_id, req)
+    if not recipients:
+        raise ValueError("no_valid_recipients")
+
+    # Bounce-list filter — skip any addresses Resend has previously reported as bounced
+    all_emails = [r.email.strip().lower() for r in recipients]
+    bounced_set = {
+        row.email
+        for row in db.query(BouncedEmail).filter(BouncedEmail.email.in_(all_emails)).all()
+    }
+    skipped_count = sum(1 for e in all_emails if e in bounced_set)
+    recipients = [r for r in recipients if r.email.strip().lower() not in bounced_set]
     if not recipients:
         raise ValueError("no_valid_recipients")
 
@@ -376,6 +399,7 @@ def send(
         lane_id=str(lane_id),
         batch_id=str(batch.id),
         sent_count=accepted,
+        skipped_unverified=skipped_count,
         test_mode=req.test_mode,
         sources=sources_seen,
     )
@@ -425,6 +449,16 @@ def send_follow_up(
             seen_emails.add(m.email_to)
             unique_eligible.append(m)
 
+    if not unique_eligible:
+        raise ValueError("no_eligible_recipients")
+
+    # Bounce-list filter for follow-ups
+    followup_emails = [m.email_to.strip().lower() for m in unique_eligible]
+    bounced_set = {
+        row.email
+        for row in db.query(BouncedEmail).filter(BouncedEmail.email.in_(followup_emails)).all()
+    }
+    unique_eligible = [m for m in unique_eligible if m.email_to.strip().lower() not in bounced_set]
     if not unique_eligible:
         raise ValueError("no_eligible_recipients")
 
@@ -583,7 +617,9 @@ def export_outreach_rows(
         "lane_id": str(lane_id),
         "outreach_set_id": str(latest_set.id),
         "rows": output_rows,
+        "total": len(output_rows),
     }
+
 
 
 def _latest_set_id(db: Session, lane_id: uuid.UUID) -> uuid.UUID | None:
