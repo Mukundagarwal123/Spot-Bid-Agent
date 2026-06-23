@@ -4,6 +4,8 @@ const state = {
   lanes: [],
   crm: [],
   pendingLaneId: null,
+  statusFilter: "all",   // "all" | "draft" | "active"
+  searchTerm: "",
   // modal source toggles
   modalSources: { internal: true, dat: true, crr_model: true, manual: false },
   // custom email body text (Edit Text tab)
@@ -45,20 +47,86 @@ function inferStatus(lane) {
   return hasCampaign ? "active" : "draft";
 }
 
+/* ── Toolbar (filters + search) ────────────────────────────────────── */
+let _searchTimer = null;
+function renderToolbar(tabLanes) {
+  const toolbar = document.getElementById("lanes-toolbar");
+  if (!toolbar) return;
+
+  const counts = { all: tabLanes.length, draft: 0, active: 0, completed: 0 };
+  tabLanes.forEach(l => { const s = inferStatus(l); counts[s] = (counts[s] || 0) + 1; });
+
+  const pills = state.tab === "completed"
+    ? [{ key: "all", label: "All" }]
+    : [
+        { key: "all",    label: "All" },
+        { key: "draft",  label: "Draft" },
+        { key: "active", label: "Active" },
+      ];
+
+  const searchIcon = `<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="13" y1="13" x2="18" y2="18"/></svg>`;
+
+  toolbar.innerHTML = `
+    <div class="status-filters">
+      ${pills.map(p => `
+        <button class="sf-pill${state.statusFilter === p.key ? " active" : ""}" data-filter="${p.key}">
+          ${p.label}<span class="sf-count">${counts[p.key] ?? 0}</span>
+        </button>`).join("")}
+    </div>
+    <div class="lane-search-wrap">
+      <span class="lane-search-icon">${searchIcon}</span>
+      <input class="lane-search" id="lane-search-input" type="search"
+        placeholder="Search lanes…" value="${state.searchTerm}" autocomplete="off" />
+    </div>`;
+
+  toolbar.querySelectorAll(".sf-pill").forEach(btn => {
+    btn.addEventListener("click", () => {
+      state.statusFilter = btn.dataset.filter;
+      renderLanesGrid();
+    });
+  });
+
+  document.getElementById("lane-search-input")?.addEventListener("input", e => {
+    clearTimeout(_searchTimer);
+    _searchTimer = setTimeout(() => {
+      state.searchTerm = e.target.value.trim().toLowerCase();
+      renderLanesGrid();
+    }, 180);
+  });
+}
+
 /* ── Lane table ────────────────────────────────────────────────────── */
 function renderLanesGrid() {
   const grid = document.getElementById("lanes-grid");
 
-  // Filter: active tab shows draft + active; completed tab shows completed only
-  const rows = state.lanes
+  // Tab-level filter (unchanged logic)
+  const tabLanes = state.lanes
     .filter(l => {
       const s = inferStatus(l);
       return state.tab === "completed" ? s === "completed" : s !== "completed";
     })
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  // Render toolbar with unfiltered tab counts
+  renderToolbar(tabLanes);
+
+  // Apply status pill filter
+  let rows = state.statusFilter === "all"
+    ? tabLanes
+    : tabLanes.filter(l => inferStatus(l) === state.statusFilter);
+
+  // Apply search
+  if (state.searchTerm) {
+    rows = rows.filter(l => l.label?.toLowerCase().includes(state.searchTerm));
+  }
+
   if (!rows.length) {
-    grid.innerHTML = `<div class="lanes-empty">No ${state.tab === "completed" ? "completed" : "active"} lanes yet. Click <strong>+ Add Lane</strong> to get started.</div>`;
+    const msg = state.searchTerm
+      ? `No lanes matching "<strong>${state.searchTerm}</strong>".`
+      : state.statusFilter !== "all"
+        ? `No <strong>${state.statusFilter}</strong> lanes.`
+        : `No ${state.tab === "completed" ? "completed" : "active"} lanes yet. Click <strong>+ Add Lane</strong> to get started.`;
+    grid.innerHTML = `<div class="lanes-empty">${msg}</div>`;
     return;
   }
 
@@ -129,6 +197,8 @@ function renderCrmTable() {
 /* ── Tab switching ─────────────────────────────────────────────────── */
 function setTab(tab) {
   state.tab = tab;
+  state.statusFilter = "all";
+  state.searchTerm = "";
   document.querySelectorAll(".left-tab").forEach(btn =>
     btn.classList.toggle("active", btn.dataset.tab === tab)
   );
