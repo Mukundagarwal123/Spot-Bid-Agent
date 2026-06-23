@@ -16,6 +16,9 @@ tmp/
 Carrire Data.csv
 *.csv
 *.xlsx
+# FreightX model folder — large, not needed in repo
+FreightX-V1/
+FreightX-V1-main/
 FreightX-V1-main/.venv/
 FreightX-V1-main/.env
 FreightX-V1-main/env

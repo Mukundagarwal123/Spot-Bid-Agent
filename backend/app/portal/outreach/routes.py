@@ -151,8 +151,12 @@ def get_carrier_thread(lane_id: uuid.UUID):
     email = request.args.get("email", "").strip()
     if not email:
         return jsonify({"detail": "email parameter required"}), 400
-    with session_scope() as db:
-        result = outreach_service.get_carrier_thread(db, lane_id, email)
+    try:
+        with session_scope() as db:
+            result = outreach_service.get_carrier_thread(db, lane_id, email)
+    except Exception as exc:
+        logger.exception("outreach.thread.error", email=email, error=str(exc))
+        return jsonify({"detail": "Failed to load thread"}), 500
     return jsonify(result.model_dump(mode="json")), 200
 
 

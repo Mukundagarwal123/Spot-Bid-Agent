@@ -4,6 +4,7 @@ import json
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 import structlog
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -61,9 +62,6 @@ def handle_event(
     event_type_raw: str = payload.get("type", "")
     event_type = event_type_raw.removeprefix("email.")
     is_inbound_reply = event_type == "received"
-    # Resend sends 'email.received' for inbound replies — treat as 'replied'
-    if is_inbound_reply:
-        event_type = "replied"
 
     data = payload.get("data", {})
     created_at_str: str = payload.get("created_at", "")
@@ -74,40 +72,71 @@ def handle_event(
         event_at = _utcnow()
 
     if is_inbound_reply:
-        # For inbound replies, email_id is the received email's ID (not the sent message ID).
-        # Match by the sender's email address instead.
-        from_email: str = (data.get("from") or "").strip().lower()
-        epoch_ms = int(event_at.timestamp() * 1000)
-        idempotency_key = f"inbound::{from_email}::{epoch_ms}"
+        # Resend's email.received webhook carries no body text.
+        # Full body is only available when Resend inbound routing POSTs to
+        # /webhooks/inbound/replies. Here we capture from + subject from the
+        # webhook metadata so the thread at least shows the reply happened.
+        from app.webhooks import reply_handler
 
-        message = (
-            db.query(OutreachMessage)
-            .filter(OutreachMessage.email_to == from_email)
-            .filter(OutreachMessage.replied_at.is_(None))
-            .order_by(OutreachMessage.sent_at.desc())
-            .first()
+        email_id: str = data.get("email_id", "")
+
+        # Resend sends "from" as "Name <email@addr>" — split out each part
+        raw_from: str = data.get("from") or ""
+        from_name: str | None = None
+        if "<" in raw_from:
+            from_name = raw_from.split("<")[0].strip() or None
+            raw_from = raw_from.split("<")[-1].rstrip(">")
+        from_email = raw_from.strip().lower()
+
+        # Fetch full body from Resend receiving API
+        body_text = ""
+        try:
+            resp = httpx.get(
+                f"https://api.resend.com/emails/receiving/{email_id}",
+                headers={"Authorization": f"Bearer {settings.resend_api_key}"},
+                timeout=10,
+            )
+            if resp.is_success:
+                body_data = resp.json()
+                body_text = body_data.get("text") or body_data.get("html") or ""
+                logger.info("resend.receiving.fetched", email_id=email_id, has_body=bool(body_text))
+            else:
+                logger.warning("resend.receiving.fetch_failed", email_id=email_id, status=resp.status_code, body=resp.text[:200])
+        except Exception as exc:
+            logger.warning("resend.receiving.fetch_error", email_id=email_id, error=str(exc))
+
+        normalized = {
+            "from":           from_email,
+            "from_name":      from_name,
+            "subject":        data.get("subject"),
+            "text":           body_text,
+            "smtp_message_id": data.get("message_id"),  # SMTP Message-ID for threading
+        }
+
+        logger.info(
+            "webhook.resend.inbound_reply",
+            email_id=email_id,
+            from_email=from_email,
+            has_body=bool(body_text),
         )
-        if message is None:
-            logger.info(
-                "webhook.resend.inbound_reply_unmatched",
-                from_email=from_email,
-                event_type=event_type,
-            )
-            return
-        provider_message_id = str(message.provider_message_id)
-    else:
-        provider_message_id: str = data.get("email_id", "")
-        epoch_ms = int(event_at.timestamp() * 1000)
-        idempotency_key = f"{provider_message_id}::{event_type}::{epoch_ms}"
 
-        message = db.query(OutreachMessage).filter_by(provider_message_id=provider_message_id).first()
-        if message is None:
-            logger.info(
-                "webhook.resend.message_not_found",
-                provider_message_id=provider_message_id,
-                event_type=event_type,
-            )
-            return
+        reply_handler.handle_reply(db, normalized)
+        return
+
+    # ── All other event types (delivered, opened, clicked, bounced, etc.) ──
+
+    provider_message_id: str = data.get("email_id", "")
+    epoch_ms = int(event_at.timestamp() * 1000)
+    idempotency_key = f"{provider_message_id}::{event_type}::{epoch_ms}"
+
+    message = db.query(OutreachMessage).filter_by(provider_message_id=provider_message_id).first()
+    if message is None:
+        logger.info(
+            "webhook.resend.message_not_found",
+            provider_message_id=provider_message_id,
+            event_type=event_type,
+        )
+        return
 
     event = OutreachMessageEvent(
         id=uuid.uuid4(),

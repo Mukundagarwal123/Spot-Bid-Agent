@@ -113,13 +113,18 @@ def _build_source_metrics(messages: list[OutreachMessage]) -> dict[str, SourceMe
     }
 
 
+_STATUS_RANK = {"sent": 0, "delivered": 1, "opened": 2, "clicked": 3, "replied": 4, "failed": 5, "bounced": 6}
+
+
 def _build_carrier_responses(db: Session, messages: list[OutreachMessage]) -> list[CarrierResponseItem]:
     if not messages:
         return []
 
+    # Fetch all replies linked to these messages
     message_ids = [m.id for m in messages]
+    all_replies = db.query(OutreachReply).filter(OutreachReply.message_id.in_(message_ids)).all()
     replies_by_msg: dict[uuid.UUID, OutreachReply] = {}
-    for reply in db.query(OutreachReply).filter(OutreachReply.message_id.in_(message_ids)).all():
+    for reply in all_replies:
         if reply.message_id not in replies_by_msg:
             replies_by_msg[reply.message_id] = reply
 
@@ -129,32 +134,44 @@ def _build_carrier_responses(db: Session, messages: list[OutreachMessage]) -> li
         for row in db.query(CarrierOutreachRow).filter(CarrierOutreachRow.id.in_(row_ids)).all():
             rows_by_id[row.id] = row
 
+    # Group messages by carrier email — one row per carrier in the UI
+    grouped: dict[str, list[OutreachMessage]] = {}
+    for msg in messages:
+        grouped.setdefault(msg.email_to.lower(), []).append(msg)
+
     items: list[CarrierResponseItem] = []
-    for msg in sorted(
-        messages,
-        key=lambda m: m.replied_at or m.clicked_at or m.opened_at or m.delivered_at or m.sent_at,
-        reverse=True,
-    ):
-        row = rows_by_id.get(msg.outreach_row_id) if msg.outreach_row_id else None
-        reply = replies_by_msg.get(msg.id)
-        last_event, last_event_at = _last_event(msg)
-        snippet = reply.reply_body[:200] if reply and reply.reply_body else None
-        st = (msg.source_type or "internal").lower()
+    for email, msgs in grouped.items():
+        # Pick the initial (non-follow-up) message as the canonical row; fall back to first msg
+        initial = next((m for m in msgs if not m.is_follow_up), msgs[0])
+        # Use the highest-ranked status across all messages for this carrier
+        best_msg = max(msgs, key=lambda m: (_STATUS_RANK.get(m.status, -1), m.sent_at or datetime.min))
+        # Use the latest reply snippet for this carrier
+        carrier_replies = [replies_by_msg[m.id] for m in msgs if m.id in replies_by_msg]
+        latest_reply = max(carrier_replies, key=lambda r: r.received_at, default=None) if carrier_replies else None
+        snippet = latest_reply.reply_body[:200] if latest_reply and latest_reply.reply_body else None
+        # Max attempt number = total contact count
+        max_attempt = max(m.attempt_number for m in msgs)
+
+        row = rows_by_id.get(initial.outreach_row_id) if initial.outreach_row_id else None
+        last_event, last_event_at = _last_event(best_msg)
+        st = (initial.source_type or "internal").lower()
 
         items.append(CarrierResponseItem(
-            carrier_name=msg.carrier_name,
-            email=msg.email_to,
+            carrier_name=initial.carrier_name,
+            email=initial.email_to,
             phone=row.phone if row else "",
             source=_SOURCE_DISPLAY.get(st, st),
             source_type=st,
-            status=msg.status,
+            status=best_msg.status,
             last_event=last_event,
             last_event_at=_fmt(last_event_at),
             reply_snippet=snippet,
-            attempt_number=msg.attempt_number,
-            is_follow_up=msg.is_follow_up,
+            attempt_number=max_attempt,
+            is_follow_up=False,
         ))
 
+    # Sort by most recent activity descending
+    items.sort(key=lambda i: i.last_event_at or "", reverse=True)
     return items
 
 

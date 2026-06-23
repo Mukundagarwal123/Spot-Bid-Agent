@@ -968,7 +968,7 @@ async function init() {
 
   renderHeader(state.lane);
 
-  const hasSentBatch = metricsData?.batch_id && (metricsData.sent > 0 || metricsData.batch_status === "sending");
+  const hasSentBatch = metricsData?.batch_id && (metricsData.sent > 0 || metricsData.batch_status === "sent" || metricsData.batch_status === "sending");
 
   if (hasSentBatch) {
     // ── Live dashboard ────────────────────────────────────────────

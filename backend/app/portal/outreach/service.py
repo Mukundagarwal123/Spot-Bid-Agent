@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -291,7 +292,9 @@ def send(
     if lane is None:
         raise ValueError("lane_not_found")
 
-    # Idempotency guard: return existing batch if send was initiated recently
+    # Idempotency guard: return existing batch if send was initiated recently.
+    # Only fires when at least one email was actually accepted — a batch with
+    # sent_count=0 means Resend failed and we should allow an immediate retry.
     cutoff = _utcnow() - timedelta(minutes=5)
     existing = (
         db.query(OutreachBatch)
@@ -299,6 +302,7 @@ def send(
             OutreachBatch.lane_id == lane_id,
             OutreachBatch.test_mode == req.test_mode,
             OutreachBatch.status.in_(["sending", "sent"]),
+            OutreachBatch.sent_count > 0,
             OutreachBatch.created_at >= cutoff,
         )
         .order_by(OutreachBatch.created_at.desc())
@@ -642,6 +646,10 @@ def _batch_response(batch: OutreachBatch) -> OutreachBatchResponse:
     )
 
 
+def _fmt(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt else None
+
+
 def get_carrier_thread(db: Session, lane_id: uuid.UUID, email: str) -> CarrierThreadResponse:
     rows = (
         db.query(OutreachMessage, OutreachBatch)
@@ -690,7 +698,7 @@ def get_carrier_thread(db: Session, lane_id: uuid.UUID, email: str) -> CarrierTh
             ),
         ))
 
-    items.sort(key=lambda x: x[0])
+    items.sort(key=lambda x: x[0] if x[0] is not None else datetime.min)
     return CarrierThreadResponse(
         carrier_name=carrier_name,
         email=email,
@@ -715,13 +723,48 @@ def send_carrier_reply(
 
     html_body = "<br>".join(line for line in req.body.replace("\r\n", "\n").split("\n"))
 
-    provider_ids = sender.send_batch([{
+    # Use the carrier's last reply SMTP Message-ID for threading
+    thread_headers: dict = {}
+    try:
+        last_reply = (
+            db.query(OutreachReply)
+            .filter(
+                OutreachReply.lane_id == lane_id,
+                OutreachReply.from_email == req.email,
+            )
+            .order_by(OutreachReply.received_at.desc())
+            .first()
+        )
+        if last_reply and last_reply.raw_headers:
+            stored = json.loads(last_reply.raw_headers)
+            smtp_msg_id = stored.get("smtp_message_id")
+            if smtp_msg_id:
+                thread_headers = {
+                    "In-Reply-To": smtp_msg_id,
+                    "References":  smtp_msg_id,
+                }
+                logger.info("outreach.carrier_reply.threading", smtp_message_id=smtp_msg_id)
+            else:
+                logger.warning("outreach.carrier_reply.no_smtp_msg_id", stored_keys=list(stored.keys()))
+        else:
+            logger.warning("outreach.carrier_reply.no_reply_found", lane_id=str(lane_id), email=req.email)
+    except Exception as exc:
+        logger.warning("outreach.carrier_reply.thread_lookup_failed", error=str(exc))
+
+    # Ensure subject has Re: prefix
+    subject = req.subject if req.subject.lower().startswith("re:") else f"Re: {req.subject}"
+
+    email_payload: dict = {
         "from": settings.resend_sender,
         "to": [req.email],
-        "subject": req.subject,
+        "subject": subject,
         "text": req.body,
         "html": f"<p style='font-family:sans-serif;font-size:14px;line-height:1.6'>{html_body}</p>",
-    }])
+    }
+    if thread_headers:
+        email_payload["headers"] = thread_headers
+
+    provider_ids = sender.send_batch([email_payload])
 
     msg_id = provider_ids[0] if provider_ids else None
     if not msg_id:
@@ -737,7 +780,7 @@ def send_carrier_reply(
         include_dat=False,
         include_freightx=False,
         notes=None,
-        subject=req.subject,
+        subject=subject,
         email_body=req.body,
         status="sent",
         sent_count=1,
