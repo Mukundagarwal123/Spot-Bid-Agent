@@ -50,7 +50,7 @@ def normalize_freightx_records(
 ) -> List[AggregatedCarrier]:
     return [
         AggregatedCarrier(
-            carrier_name=(r.legal_name or "").strip(),
+            carrier_name=(r.legal_name or r.docket_number or "").strip(),
             phone=r.phone or "",
             email=r.email_address or "",
             # docket_number is already stored without the MC prefix (Feature 004)
@@ -59,5 +59,5 @@ def normalize_freightx_records(
             source_row_id=str(r.id),
         )
         for r in records
-        if (r.legal_name or "").strip()
+        if (r.legal_name or "").strip() or (r.docket_number or "").strip()
     ]
