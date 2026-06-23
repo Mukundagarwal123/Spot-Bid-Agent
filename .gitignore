@@ -13,6 +13,9 @@ build/
 node_modules/
 *.log
 tmp/
+*.db
+*.db-journal
+.claude/
 Carrire Data.csv
 *.csv
 *.xlsx
