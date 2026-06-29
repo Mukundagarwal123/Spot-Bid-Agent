@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Inbox — Spot Bid Portal</title>
+  <link rel="stylesheet" href="{{ url_for('whatsapp_web.static', filename='whatsapp.css') }}" />
+</head>
+<body>
+  <div class="wa-shell">
+
+    <!-- ── Left nav ─────────────────────────────────────────── -->
+    <aside class="left-nav">
+      <div class="brand">
+        <div class="brand-mark">SB</div>
+        <div>
+          <div class="brand-title">Spot Bid Portal</div>
+          <div class="brand-subtitle">Lane operations console</div>
+        </div>
+      </div>
+      <nav class="left-tabs">
+        <a class="left-tab" href="/">Active Lanes</a>
+        <a class="left-tab active" href="/whatsapp">WhatsApp Inbox</a>
+      </nav>
+    </aside>
+
+    <!-- ── Inbox shell ──────────────────────────────────────── -->
+    <div class="inbox-shell">
+
+      <!-- Conversation list panel -->
+      <aside class="conv-panel" id="conv-panel">
+        <header class="conv-panel-header">
+          <div class="conv-panel-title">
+            <span class="wa-icon">💬</span>
+            WhatsApp
+            <span class="unread-total-badge hidden" id="unread-total-badge"></span>
+          </div>
+          <div class="conv-panel-actions">
+            <span class="sse-badge" id="sse-badge" title="Connecting…"></span>
+            <button class="btn-new-conv" id="btn-new-conv" title="New conversation">＋</button>
+          </div>
+        </header>
+
+        <div class="conv-search-wrap">
+          <span class="conv-search-icon">
+            <svg width="13" height="13" viewBox="0 0 20 20" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="13" y1="13" x2="18" y2="18"/></svg>
+          </span>
+          <input class="conv-search" id="conv-search" type="search" placeholder="Search conversations…" autocomplete="off" />
+        </div>
+
+        <div class="conv-filters" id="conv-filters">
+          <button class="cf-pill active" data-status="open">Open</button>
+          <button class="cf-pill" data-status="all">All</button>
+          <button class="cf-pill" data-status="closed">Closed</button>
+          <label class="cf-unread-toggle">
+            <input type="checkbox" id="unread-only-toggle" /> Unread
+          </label>
+        </div>
+
+        <div class="conv-list" id="conv-list">
+          <div class="conv-list-empty" id="conv-list-empty">No conversations yet.</div>
+        </div>
+      </aside>
+
+      <!-- Thread panel -->
+      <main class="thread-panel" id="thread-panel">
+        <div class="thread-empty" id="thread-empty">
+          <div class="thread-empty-icon">💬</div>
+          <div class="thread-empty-label">Select a conversation to start</div>
+        </div>
+
+        <div class="thread-inner hidden" id="thread-inner">
+          <header class="thread-header" id="thread-header">
+            <div class="thread-avatar" id="thread-avatar"></div>
+            <div class="thread-header-info">
+              <div class="thread-contact-name" id="thread-contact-name"></div>
+              <div class="thread-contact-line">
+                <span class="thread-to-chip">To</span>
+                <span class="thread-contact-phone" id="thread-contact-phone"></span>
+              </div>
+            </div>
+            <div class="thread-session-badge" id="thread-session-badge"></div>
+          </header>
+
+          <div class="thread-messages" id="thread-messages"></div>
+
+          <div class="thread-composer" id="thread-composer">
+            <div class="session-warning hidden" id="session-warning">
+              <span>⚠️ 24-hour session expired — select a template to re-open.</span>
+            </div>
+            <div class="composer-row" id="composer-row">
+              <textarea class="composer-input" id="composer-input" rows="1"
+                placeholder="Type a message…" maxlength="4096"></textarea>
+              <button class="composer-send" id="composer-send">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+              </button>
+            </div>
+            <div class="template-row hidden" id="template-row">
+              <select class="template-select" id="template-select">
+                <option value="">— choose a template —</option>
+              </select>
+              <button class="composer-send" id="template-send">Send</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- Contact panel -->
+      <aside class="contact-panel" id="contact-panel">
+        <div class="contact-panel-empty" id="contact-panel-empty">
+          <span style="opacity:.35;font-size:2rem">👤</span>
+        </div>
+        <div class="contact-detail hidden" id="contact-detail">
+          <div class="contact-avatar-lg" id="contact-avatar-lg"></div>
+          <div class="contact-name-edit" id="contact-name-edit" contenteditable="true" spellcheck="false"></div>
+          <div class="contact-phone-row">
+            <span id="contact-phone-display"></span>
+            <button class="copy-btn" id="copy-phone-btn" title="Copy">⎘</button>
+          </div>
+          <div class="contact-session-row" id="contact-session-row"></div>
+
+          <div class="contact-section-label">Labels</div>
+          <div class="contact-labels" id="contact-labels"></div>
+
+          <div class="contact-section-label" style="margin-top:20px">History</div>
+          <div class="contact-history" id="contact-history">
+            <div style="font-size:.78rem;color:#94a3b8">Lane links appear here after campaigns launch.</div>
+          </div>
+        </div>
+      </aside>
+
+    </div><!-- /inbox-shell -->
+  </div><!-- /wa-shell -->
+
+  <!-- ── New conversation modal ─────────────────────────────── -->
+  <dialog id="new-conv-dialog" class="wa-dialog">
+    <div class="wa-dialog-inner">
+      <div class="wa-dialog-header">
+        <h3>New Conversation</h3>
+        <button class="wa-dialog-close" id="new-conv-close">×</button>
+      </div>
+      <label class="wa-label">Phone number <span class="wa-req">*</span> <span style="font-weight:400;color:#94a3b8">(include country code)</span></label>
+      <input class="wa-input" id="new-conv-phone" type="tel" placeholder="+1 805 733 2428" />
+      <label class="wa-label" style="margin-top:12px">Message <span class="wa-req">*</span></label>
+      <textarea class="wa-input wa-textarea" id="new-conv-body" rows="3"
+        placeholder="Type your message…"></textarea>
+      <div class="wa-dialog-note" id="new-conv-template-note">
+        <span>⚠️ No prior session — you must use an approved template.</span>
+        <select class="template-select" id="new-conv-template-select" style="margin-top:6px;width:100%">
+          <option value="">— choose template —</option>
+        </select>
+        <div id="no-templates-hint" class="hidden" style="margin-top:6px;font-size:.78rem;color:#f59e0b">
+          No approved templates yet. Create one in WhatsApp Manager → Message Templates, then add it to <code>APPROVED_TEMPLATES</code> in <code>whatsapp_service.py</code>.
+        </div>
+      </div>
+      <p class="wa-dialog-error hidden" id="new-conv-error"></p>
+      <div class="wa-dialog-actions">
+        <button class="btn-ghost" id="new-conv-cancel">Cancel</button>
+        <button class="btn-primary" id="new-conv-send">Send</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script src="{{ url_for('whatsapp_web.static', filename='whatsapp.js') }}"></script>
+</body>
+</html>

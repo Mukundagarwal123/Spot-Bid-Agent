@@ -14,7 +14,9 @@ from app.portal.api import portal_api_bp
 from app.portal.carriers.routes import carriers_api_bp
 from app.portal.outreach.routes import outreach_bp
 from app.web.routes import portal_web_bp
-from app.webhooks.routes import webhooks_bp
+from app.web.whatsapp_api import whatsapp_api_bp
+from app.web.whatsapp_web import whatsapp_web_bp
+from app.webhooks.routes import webhooks_bp, webhook_alias_bp
 
 configure_logging()
 logger = structlog.get_logger(__name__)
@@ -41,6 +43,13 @@ def create_app() -> Flask:
 
     create_tables()
     run_column_migrations(engine)
+
+    # Merge contacts that differ only by missing country code prefix
+    from app.db.base import session_scope
+    from app.services.whatsapp_service import dedup_contacts
+    with session_scope() as db:
+        dedup_contacts(db)
+
     logger.info("startup", env=settings.app_env, db=settings.database_url)
     logger.info(
         "startup.turvo_config",
@@ -60,6 +69,9 @@ def create_app() -> Flask:
     app.register_blueprint(carriers_api_bp)
     app.register_blueprint(outreach_bp)
     app.register_blueprint(webhooks_bp)
+    app.register_blueprint(webhook_alias_bp)
+    app.register_blueprint(whatsapp_web_bp)
+    app.register_blueprint(whatsapp_api_bp)
     app.register_blueprint(health_bp)
 
     return app

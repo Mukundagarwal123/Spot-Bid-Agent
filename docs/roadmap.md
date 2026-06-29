@@ -34,6 +34,13 @@ Feature spec reference:
 - Add lane-level live outreach page with source selection, notes, template preview, and follow-up actions.
 - Keep SMS and WhatsApp disabled until the email workflow is stable.
 
+## Phase 4b - WhatsApp Inbox Foundation
+- Build a WhatsApp inbox/dashboard with webhook-driven inbound message ingestion.
+- Show full conversation history per contact in a dedicated route.
+- Support manual reply/send from the dashboard UI.
+- Persist message status updates and live thread state.
+- Keep the architecture channel-aware so WhatsApp can later share the same messaging model as email and SMS.
+
 ## Phase 5 - Event Tracking
 - Capture delivery/open/click/reply callbacks.
 - Update per-carrier and per-load state.

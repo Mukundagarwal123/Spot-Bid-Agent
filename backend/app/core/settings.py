@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Resolve .env from the project root regardless of where the server is started from.
 # settings.py lives at backend/app/core/settings.py → parents[3] = project root.
-_ENV_FILE = str(Path(__file__).resolve().parents[2] / ".env")
+_ENV_FILE = str(Path(__file__).resolve().parents[3] / ".env")
 
 
 class Settings(BaseSettings):
@@ -60,6 +60,12 @@ class Settings(BaseSettings):
     resend_from: str = Field(default="", alias="RESEND_FROM", validation_alias="RESEND_FROM")
     resend_from_email: str = Field(default="", alias="RESEND_FROM_EMAIL", validation_alias="RESEND_FROM_EMAIL")
     resend_webhook_secret: str = ""
+
+    # Meta WhatsApp Business Cloud API (Feature 008)
+    whatsapp_phone_number_id: str = ""
+    whatsapp_access_token: str = ""
+    whatsapp_app_secret: str = ""
+    whatsapp_verify_token: str = ""
 
     @property
     def resend_sender(self) -> str:

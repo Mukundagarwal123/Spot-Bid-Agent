@@ -328,3 +328,91 @@ class OutreachReply(Base):
     reply_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     received_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     raw_headers: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── WhatsApp Inbox (Feature 008) ─────────────────────────────────────────────
+
+
+class MessagingContact(Base):
+    """One row per unique WhatsApp contact (phone number)."""
+
+    __tablename__ = "messaging_contacts"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    phone: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
+    display_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    wa_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    labels_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="[]")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class MessagingConversation(Base):
+    """One thread per contact × channel. Currently only channel='whatsapp'."""
+
+    __tablename__ = "messaging_conversations"
+    __table_args__ = (
+        UniqueConstraint("contact_id", "channel", name="uq_conv_contact_channel"),
+        Index("ix_conv_channel_activity", "channel", "last_activity_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("messaging_contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    channel: Mapped[str] = mapped_column(String(20), nullable=False, default="whatsapp")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    unread_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_message_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_activity_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_inbound_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class MessagingMessage(Base):
+    """One row per inbound or outbound WhatsApp message."""
+
+    __tablename__ = "messaging_messages"
+    __table_args__ = (
+        Index("ix_msg_conv_created", "conversation_id", "created_at"),
+        Index("ix_msg_provider_id", "provider_message_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("messaging_conversations.id", ondelete="CASCADE"), nullable=False
+    )
+    contact_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("messaging_contacts.id", ondelete="CASCADE"), nullable=False
+    )
+    direction: Mapped[str] = mapped_column(String(10), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    provider: Mapped[str] = mapped_column(String(30), nullable=False, default="meta_whatsapp")
+    provider_message_id: Mapped[str | None] = mapped_column(String(200), nullable=True, unique=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
+    is_template: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    template_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    received_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class MessagingMessageEvent(Base):
+    """Append-only event log — one row per webhook callback, idempotency-keyed."""
+
+    __tablename__ = "messaging_message_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    message_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("messaging_messages.id", ondelete="CASCADE"), nullable=True
+    )
+    event_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    event_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    raw_payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(300), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
