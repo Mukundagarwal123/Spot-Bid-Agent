@@ -371,9 +371,16 @@ async function onCheckCarriers() {
         // Done when all sources resolved and no DAT still pending
         if (resolved.size === nonManualSources.length && !counts.dat_pending) break;
 
-        // If nothing is pending (no dat_pending, all non-dat resolved) give up early
-        const nonDatPending = nonManualSources.filter(k => k !== "dat" && !resolved.has(k));
-        if (!counts.dat_pending && nonDatPending.length === 0) break;
+        // CRR Model can take much longer than internal/dat.
+        // If other faster sources are selected and all settled, don't let CRR block.
+        // But if CRR is the ONLY selected source, we must wait for it.
+        const hasFasterSources = nonManualSources.some(k => k !== "crr_model");
+        const blockingUnresolved = nonManualSources.filter(k => {
+          if (k === "dat") return false;                          // dat pending tracked separately
+          if (k === "crr_model" && hasFasterSources) return false; // crr doesn't block if faster sources exist
+          return !resolved.has(k);
+        });
+        if (!counts.dat_pending && blockingUnresolved.length === 0) break;
       } catch (_) { /* keep polling */ }
 
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));

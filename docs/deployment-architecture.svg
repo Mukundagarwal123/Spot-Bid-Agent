@@ -1,0 +1,220 @@
+<svg viewBox="0 0 800 1240" xmlns="http://www.w3.org/2000/svg" font-family="Segoe UI, system-ui, Arial, sans-serif">
+  <rect x="0" y="0" width="800" height="1240" fill="#ffffff"/>
+  <style>
+    .t{font-size:13px;font-weight:600;fill:#1a1a1a}
+    .ts{font-size:11px;fill:#555}
+    .th{font-size:12px;font-weight:600;fill:#666}
+    .tt{font-size:11px;fill:#8a8a8a}
+    .sec{font-size:15px;font-weight:600;fill:#1a1a1a}
+    .num{font-size:13px;font-weight:700;fill:#8a8a8a}
+    .lg{stroke:#888780;stroke-width:1.4;fill:none;marker-end:url(#g)}
+    .lb{stroke:#378ADD;stroke-width:1.4;fill:none;marker-end:url(#b)}
+    .lm{stroke:#BA7517;stroke-width:1.5;fill:none;marker-end:url(#m)}
+    .gray rect{fill:#F1EFE8;stroke:#5F5E5A}
+    .purple rect{fill:#EEEDFE;stroke:#534AB7}
+    .teal rect{fill:#E1F5EE;stroke:#0F6E56}
+    .blue rect{fill:#E6F1FB;stroke:#185FA5}
+    .amber rect{fill:#FAEEDA;stroke:#854F0B}
+    .coral rect{fill:#FAECE7;stroke:#993C1D}
+    .gray .t{fill:#2C2C2A}.gray .ts{fill:#5F5E5A}
+    .purple .t{fill:#26215C}.purple .ts{fill:#534AB7}
+    .teal .t{fill:#04342C}.teal .ts{fill:#0F6E56}
+    .blue .t{fill:#042C53}.blue .ts{fill:#185FA5}
+    .amber .t{fill:#412402}.amber .ts{fill:#854F0B}
+    .coral .t{fill:#4A1B0C}.coral .ts{fill:#993C1D}
+  </style>
+  <defs>
+    <marker id="g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#888780"/></marker>
+    <marker id="b" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#378ADD"/></marker>
+    <marker id="m" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#BA7517"/></marker>
+  </defs>
+
+  <text x="28" y="36" class="sec" font-size="19">Spot Bid Agent — AWS deployment architecture</text>
+  <text x="28" y="57" class="th">Flask monolith · in-process FreightX model · single EC2 web host · managed RDS + S3</text>
+
+  <rect x="28" y="70" width="13" height="13" rx="3" fill="#F1EFE8" stroke="#5F5E5A"/><text x="47" y="81" class="tt">build / ci-cd</text>
+  <rect x="138" y="70" width="13" height="13" rx="3" fill="#EEEDFE" stroke="#534AB7"/><text x="157" y="81" class="tt">application tier</text>
+  <rect x="262" y="70" width="13" height="13" rx="3" fill="#E1F5EE" stroke="#0F6E56"/><text x="281" y="81" class="tt">carrier sources</text>
+  <rect x="382" y="70" width="13" height="13" rx="3" fill="#E6F1FB" stroke="#185FA5"/><text x="401" y="81" class="tt">storage / data</text>
+  <rect x="500" y="70" width="13" height="13" rx="3" fill="#FAEEDA" stroke="#854F0B"/><text x="519" y="81" class="tt">daily batch pipeline</text>
+  <rect x="652" y="70" width="13" height="13" rx="3" fill="#FAECE7" stroke="#993C1D"/><text x="671" y="81" class="tt">external</text>
+
+  <text x="28" y="118" class="num">1</text>
+  <text x="44" y="118" class="sec">ship code to production</text>
+  <g class="gray"><rect x="28" y="130" width="172" height="66" rx="8"/>
+    <text x="44" y="154" class="t">developer laptop</text>
+    <text x="44" y="172" class="ts">edit code, then</text>
+    <text x="44" y="186" class="ts">git push origin main</text></g>
+  <g class="gray"><rect x="226" y="130" width="160" height="66" rx="8"/>
+    <text x="242" y="154" class="t">github repo</text>
+    <text x="242" y="172" class="ts">main branch</text>
+    <text x="242" y="186" class="ts">triggers ci on push</text></g>
+  <g class="gray"><rect x="412" y="130" width="186" height="66" rx="8"/>
+    <text x="428" y="154" class="t">github actions (ci/cd)</text>
+    <text x="428" y="172" class="ts">run tests, build image,</text>
+    <text x="428" y="186" class="ts">deploy to ec2</text></g>
+  <g class="gray"><rect x="624" y="130" width="148" height="66" rx="8"/>
+    <text x="640" y="154" class="t">aws ecr</text>
+    <text x="640" y="172" class="ts">private docker</text>
+    <text x="640" y="186" class="ts">image registry</text></g>
+  <line x1="200" y1="163" x2="224" y2="163" class="lg"/>
+  <line x1="386" y1="163" x2="410" y2="163" class="lg"/>
+  <line x1="598" y1="163" x2="622" y2="163" class="lg"/>
+
+  <text x="28" y="236" class="num">2</text>
+  <text x="44" y="236" class="sec">ec2 web host · ubuntu 22.04 · t3.xlarge (16 gb ram)</text>
+  <rect x="28" y="248" width="744" height="300" rx="11" fill="none" stroke="#534AB7" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="44" y="268" class="th">docker compose · managed by systemd (auto-restart on crash and boot) · nginx terminates tls</text>
+
+  <g class="purple"><rect x="44" y="282" width="118" height="104" rx="8"/>
+    <text x="58" y="306" class="t">nginx</text>
+    <text x="58" y="324" class="ts">ports 80 / 443</text>
+    <text x="58" y="340" class="ts">reverse proxy</text>
+    <text x="58" y="356" class="ts">to gunicorn :8000</text>
+    <text x="58" y="372" class="ts">tls via certbot</text></g>
+
+  <rect x="180" y="282" width="438" height="244" rx="9" fill="none" stroke="#534AB7" stroke-width="1.2"/>
+  <text x="194" y="300" class="th">docker container (from ecr) · gunicorn, 4 workers · entry app.main:app</text>
+
+  <g class="purple"><rect x="194" y="310" width="134" height="42" rx="7"/>
+    <text x="206" y="328" class="t" font-size="12">web ui · jinja</text>
+    <text x="206" y="343" class="ts">portal + lane detail</text></g>
+  <g class="purple"><rect x="338" y="310" width="128" height="42" rx="7"/>
+    <text x="350" y="328" class="t" font-size="12">portal api</text>
+    <text x="350" y="343" class="ts">lanes · metrics</text></g>
+  <g class="purple"><rect x="476" y="310" width="128" height="42" rx="7"/>
+    <text x="488" y="328" class="t" font-size="12">outreach</text>
+    <text x="488" y="343" class="ts">email · sms · wa</text></g>
+
+  <text x="194" y="372" class="th">carrier sources, aggregated and de-duplicated</text>
+  <g class="teal"><rect x="194" y="378" width="132" height="56" rx="7"/>
+    <text x="206" y="396" class="t" font-size="12">1 · turvo</text>
+    <text x="206" y="411" class="ts">internal contacts</text>
+    <text x="206" y="425" class="ts">+ turvo api</text></g>
+  <g class="teal"><rect x="334" y="378" width="132" height="56" rx="7"/>
+    <text x="346" y="396" class="t" font-size="12">2 · dat</text>
+    <text x="346" y="411" class="ts">csv to llm parse</text>
+    <text x="346" y="425" class="ts">theagentic.ai</text></g>
+  <g class="teal"><rect x="474" y="378" width="130" height="56" rx="7"/>
+    <text x="486" y="396" class="t" font-size="12">3 · freightx</text>
+    <text x="486" y="411" class="ts">in-process model</text>
+    <text x="486" y="425" class="ts">reads parquet</text></g>
+
+  <g class="purple"><rect x="194" y="444" width="410" height="36" rx="7"/>
+    <text x="206" y="466" class="t" font-size="12">webhooks · turvo #spotbid trigger · resend events + inbound replies</text></g>
+
+  <g class="purple"><rect x="194" y="488" width="410" height="30" rx="7"/>
+    <text x="206" y="508" class="ts">observability: structlog json + opentelemetry traces (optional grafana cloud)</text></g>
+
+  <g class="blue"><rect x="636" y="310" width="120" height="208" rx="8"/>
+    <text x="648" y="332" class="t" font-size="12">mounted vol</text>
+    <text x="648" y="350" class="ts">read-only</text>
+    <text x="648" y="370" class="ts">/opt/freightx/</text>
+    <text x="648" y="384" class="ts">precomputed</text>
+    <text x="648" y="406" class="ts">~700 mb</text>
+    <text x="648" y="420" class="ts">parquet + db</text>
+    <text x="648" y="446" class="tt">model reads</text>
+    <text x="648" y="460" class="tt">this at query</text>
+    <text x="648" y="474" class="tt">time</text>
+    <text x="648" y="500" class="tt">synced nightly</text>
+    <text x="648" y="514" class="tt">from s3</text></g>
+
+  <line x1="162" y1="334" x2="178" y2="334" class="lg"/>
+  <line x1="604" y1="406" x2="634" y2="406" class="lb"/>
+
+  <text x="28" y="590" class="num">3</text>
+  <text x="44" y="590" class="sec">data and storage tier · managed aws · survives every deploy and restart</text>
+  <g class="blue"><rect x="28" y="602" width="178" height="98" rx="8"/>
+    <text x="42" y="626" class="t">rds postgresql 16</text>
+    <text x="42" y="644" class="ts">all 15 app tables</text>
+    <text x="42" y="660" class="ts">lanes, carriers, outreach,</text>
+    <text x="42" y="674" class="ts">messages, replies</text>
+    <text x="42" y="690" class="tt">private subnet · auto-backup</text></g>
+  <g class="blue"><rect x="218" y="602" width="178" height="98" rx="8"/>
+    <text x="232" y="626" class="t">s3 · precomputed</text>
+    <text x="232" y="644" class="ts">~700 mb parquet</text>
+    <text x="232" y="660" class="ts">model artifacts</text>
+    <text x="232" y="674" class="ts">web host pulls nightly</text>
+    <text x="232" y="690" class="tt">small · safe on web host</text></g>
+  <g class="blue"><rect x="408" y="602" width="186" height="98" rx="8"/>
+    <text x="422" y="626" class="t">s3 · raw fmcsa data</text>
+    <text x="422" y="644" class="ts">~12.5 gb csv</text>
+    <text x="422" y="660" class="ts">census, inspections,</text>
+    <text x="422" y="674" class="ts">violations, crashes</text>
+    <text x="422" y="690" class="tt">pipeline only · never on web</text></g>
+  <g class="blue"><rect x="606" y="602" width="166" height="98" rx="8"/>
+    <text x="620" y="626" class="t">secrets manager</text>
+    <text x="620" y="644" class="ts">resend, twilio, turvo,</text>
+    <text x="620" y="660" class="ts">database url, llm key,</text>
+    <text x="620" y="674" class="ts">fmcsa token</text>
+    <text x="620" y="690" class="tt">to .env at boot</text></g>
+
+  <path d="M300 526 L300 600" class="lb"/>
+  <text x="306" y="566" class="tt">app reads / writes</text>
+  <path d="M690 526 Q690 565 689 600" class="lg"/>
+
+  <text x="28" y="742" class="num">4</text>
+  <text x="44" y="742" class="sec">freightx daily pipeline · separate compute · runs once a day, then idle</text>
+  <rect x="28" y="754" width="744" height="158" rx="11" fill="none" stroke="#854F0B" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="44" y="774" class="th">scheduled ec2 (start, run, stop) or aws batch · NOT the web host · needs large disk + ram</text>
+
+  <g class="amber"><rect x="44" y="786" width="160" height="104" rx="8"/>
+    <text x="58" y="810" class="t">1 · download</text>
+    <text x="58" y="828" class="ts">Dataset_download</text>
+    <text x="58" y="842" class="ts">_script.py</text>
+    <text x="58" y="860" class="ts">fmcsa + trimble apis</text>
+    <text x="58" y="878" class="tt">writes s3 raw</text></g>
+  <g class="amber"><rect x="224" y="786" width="160" height="104" rx="8"/>
+    <text x="238" y="810" class="t">2 · process</text>
+    <text x="238" y="828" class="ts">scripts/main.py</text>
+    <text x="238" y="842" class="ts">pandas + geopandas</text>
+    <text x="238" y="860" class="ts">crunches 12.5 gb</text>
+    <text x="238" y="878" class="tt">heavy cpu / ram</text></g>
+  <g class="amber"><rect x="404" y="786" width="160" height="104" rx="8"/>
+    <text x="418" y="810" class="t">3 · precompute</text>
+    <text x="418" y="828" class="ts">precompute_modelN</text>
+    <text x="418" y="842" class="ts">build parquet +</text>
+    <text x="418" y="860" class="ts">carrier.db</text>
+    <text x="418" y="878" class="tt">~700 mb output</text></g>
+  <g class="amber"><rect x="584" y="786" width="166" height="104" rx="8"/>
+    <text x="598" y="810" class="t">4 · publish</text>
+    <text x="598" y="828" class="ts">upload precomputed</text>
+    <text x="598" y="842" class="ts">to s3</text>
+    <text x="598" y="860" class="ts">web host syncs it in</text>
+    <text x="598" y="878" class="tt">nightly cron</text></g>
+  <line x1="204" y1="838" x2="222" y2="838" class="lm"/>
+  <line x1="384" y1="838" x2="402" y2="838" class="lm"/>
+  <line x1="564" y1="838" x2="582" y2="838" class="lm"/>
+
+  <path d="M120 786 Q120 728 410 702" class="lm"/>
+  <text x="150" y="744" class="tt">raw in</text>
+  <path d="M666 786 Q666 728 300 702" class="lm"/>
+  <text x="470" y="730" class="tt">precomputed out</text>
+
+  <text x="28" y="954" class="num">5</text>
+  <text x="44" y="954" class="sec">external services</text>
+  <g class="coral"><rect x="28" y="966" width="178" height="78" rx="8"/>
+    <text x="42" y="990" class="t">turvo tms</text>
+    <text x="42" y="1008" class="ts">#spotbid webhook in</text>
+    <text x="42" y="1024" class="ts">carrier api out</text></g>
+  <g class="coral"><rect x="218" y="966" width="178" height="78" rx="8"/>
+    <text x="232" y="990" class="t">resend</text>
+    <text x="232" y="1008" class="ts">email delivery</text>
+    <text x="232" y="1024" class="ts">events + replies in</text></g>
+  <g class="coral"><rect x="408" y="966" width="178" height="78" rx="8"/>
+    <text x="422" y="990" class="t">twilio</text>
+    <text x="422" y="1008" class="ts">sms + whatsapp</text>
+    <text x="422" y="1024" class="ts">outreach channels</text></g>
+  <g class="coral"><rect x="598" y="966" width="174" height="78" rx="8"/>
+    <text x="612" y="990" class="t">theagentic.ai</text>
+    <text x="612" y="1008" class="ts">llm for dat parsing</text>
+    <text x="612" y="1024" class="ts">openai-compatible</text></g>
+
+  <rect x="28" y="1066" width="744" height="150" rx="11" fill="#F1EFE8" stroke="#5F5E5A"/>
+  <text x="44" y="1090" class="t">what happens when you change code</text>
+  <text x="44" y="1114" class="ts">1 · edit locally, then git commit and git push origin main</text>
+  <text x="44" y="1134" class="ts">2 · github actions runs the tests; if they pass it builds a docker image tagged with the commit id</text>
+  <text x="44" y="1154" class="ts">3 · image is pushed to ecr, then over ssh on ec2: pull image, run db migration, start new container</text>
+  <text x="44" y="1174" class="ts">4 · nginx keeps serving; the swap takes seconds · rollback = redeploy a previous image · data stays in rds, never wiped</text>
+  <text x="44" y="1198" class="tt">db schema lives in models.py (15 tables) · migrations create/update rds tables · the 12.5 gb raw data never touches the web host</text>
+</svg>
