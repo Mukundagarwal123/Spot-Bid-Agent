@@ -7,7 +7,8 @@ const state = {
   statusFilter: "all",   // "all" | "draft" | "active"
   searchTerm: "",
   // modal source toggles
-  modalSources: { internal: true, dat: true, crr_model: true, manual: false },
+  modalSources: { internal: true, dat: true, crr_model: false, manual: true },
+  modalChannels: { email: true, whatsapp: true },
   // custom email body text (Edit Text tab)
   customEmailText: null,
 };
@@ -341,6 +342,17 @@ function initModalSources() {
   });
 }
 
+function initModalChannels() {
+  document.querySelectorAll(".channel-card").forEach(card => {
+    const channel = card.dataset.channel;
+    card.classList.toggle("on", !!state.modalChannels[channel]);
+    card.addEventListener("click", () => {
+      state.modalChannels[channel] = !state.modalChannels[channel];
+      card.classList.toggle("on", state.modalChannels[channel]);
+    });
+  });
+}
+
 /* ── Manual email row helpers ──────────────────────────────────────── */
 function addManualEmailRow(container) {
   const row = document.createElement("div");
@@ -348,6 +360,7 @@ function addManualEmailRow(container) {
   row.innerHTML = `
     <input type="text" class="manual-carrier-name" placeholder="Carrier Name" />
     <input type="email" class="manual-email-addr" placeholder="Email address" />
+    <input type="tel" class="manual-phone" placeholder="+1 805 555 1212" />
     <button type="button" class="remove-manual-row">×</button>`;
   row.querySelector(".remove-manual-row").addEventListener("click", () => row.remove());
   container.appendChild(row);
@@ -358,6 +371,14 @@ function collectManualEmailRows() {
     carrier_name: r.querySelector(".manual-carrier-name")?.value?.trim() || "",
     email:        r.querySelector(".manual-email-addr")?.value?.trim() || "",
   })).filter(e => e.email);
+}
+
+function collectManualRecipients() {
+  return [...document.querySelectorAll(".manual-email-row")].map(row => ({
+    carrier_name: row.querySelector(".manual-carrier-name")?.value?.trim() || "",
+    email: row.querySelector(".manual-email-addr")?.value?.trim() || "",
+    phone: row.querySelector(".manual-phone")?.value?.trim() || "",
+  })).filter(entry => entry.email || entry.phone);
 }
 
 /* ── Preview / Edit Text tab switching ─────────────────────────────── */
@@ -428,9 +449,14 @@ async function onCreateLane(event) {
   event.preventDefault();
   const errEl = document.getElementById("lane-form-error");
   errEl.classList.add("hidden");
+  if (!state.modalChannels.email && !state.modalChannels.whatsapp) {
+    errEl.textContent = "Select at least one campaign channel.";
+    errEl.classList.remove("hidden");
+    return;
+  }
 
   const fd = new FormData(document.getElementById("lane-form"));
-  const manualEmails = collectManualEmailRows();
+  const manualRecipients = collectManualRecipients();
 
   const payload = {
     origin_city:        fd.get("origin_city"),
@@ -446,6 +472,9 @@ async function onCreateLane(event) {
     include_internal:  state.modalSources.internal,
     include_dat:       state.modalSources.dat,
     include_crr_model: state.modalSources.crr_model,
+    channels: Object.entries(state.modalChannels).filter(([, enabled]) => enabled).map(([channel]) => channel),
+    manual_recipients: manualRecipients,
+    whatsapp_source_types: ["internal", "dat", "manual"],
   };
 
   try {
@@ -471,7 +500,9 @@ async function onCreateLane(event) {
         manual:    state.modalSources.manual,
       },
       notes:         fd.get("notes") || "",
-      manual_emails: manualEmails,
+      channels:      state.modalChannels,
+      whatsapp_source_types: ["internal", "dat", "manual"],
+      manual_recipients: manualRecipients,
     }));
 
     // Only show DAT import dialog if user actually selected DAT
@@ -497,13 +528,18 @@ async function onCreateLane(event) {
 /* ── Open / close modal ────────────────────────────────────────────── */
 function openModal() {
   // Reset sources to defaults
-  state.modalSources = { internal: true, dat: true, crr_model: true, manual: false };
+  state.modalSources = { internal: true, dat: true, crr_model: false, manual: true };
+  state.modalChannels = { email: true, whatsapp: true };
   state.customEmailText = null;
   document.querySelectorAll(".src-card").forEach(card => {
     card.classList.toggle("on", !!state.modalSources[card.dataset.src]);
   });
-  document.getElementById("manual-emails-section").classList.add("hidden");
+  document.querySelectorAll(".channel-card").forEach(card => {
+    card.classList.toggle("on", !!state.modalChannels[card.dataset.channel]);
+  });
+  document.getElementById("manual-emails-section").classList.remove("hidden");
   document.getElementById("manual-email-rows").innerHTML = "";
+  addManualEmailRow(document.getElementById("manual-email-rows"));
   document.getElementById("lm-email-body-text").value = "";
   document.getElementById("ptab-preview").classList.add("active");
   document.getElementById("ptab-edit").classList.remove("active");
@@ -530,6 +566,7 @@ async function init() {
 
   // Source cards
   initModalSources();
+  initModalChannels();
 
   // Add recipient button
   document.getElementById("add-manual-row-btn")?.addEventListener("click", () => {

@@ -28,6 +28,7 @@ class PortalLane(Base):
     pickup_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="new")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    campaign_config_json: Mapped[str | None] = mapped_column(Text, nullable=True, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -242,11 +243,17 @@ class OutreachBatch(Base):
     include_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     include_dat: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     include_freightx: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    send_email: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    send_whatsapp: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    whatsapp_template_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    whatsapp_language: Mapped[str | None] = mapped_column(String(20), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     subject: Mapped[str] = mapped_column(Text, nullable=False, default="")
     email_body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
     sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    email_sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    whatsapp_sent_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
@@ -386,6 +393,17 @@ class MessagingMessage(Base):
     contact_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("messaging_contacts.id", ondelete="CASCADE"), nullable=False
     )
+    lane_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("portal_lanes.id", ondelete="SET NULL"), nullable=True
+    )
+    batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("outreach_batches.id", ondelete="SET NULL"), nullable=True
+    )
+    outreach_row_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("carrier_outreach_rows.id", ondelete="SET NULL"), nullable=True
+    )
+    carrier_name: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    source_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
     direction: Mapped[str] = mapped_column(String(10), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
     provider: Mapped[str] = mapped_column(String(30), nullable=False, default="meta_whatsapp")

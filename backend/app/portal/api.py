@@ -18,7 +18,6 @@ from app.portal.carriers.dat_schemas import DatImportRequest
 from app.portal.carriers.freightx_schemas import FreightXRelevancyRequest
 from app.portal.carriers.schemas import CarrierRecommendationRequest
 from app.portal.carriers.service import get_internal_turvo_recommendations
-from app.portal.carriers.source_2_dat.parser import DatParseError
 from app.portal.carriers.aggregation import service as aggregation_service
 from app.portal.carriers.aggregation.schemas import OutreachRowResponse, OutreachSetRequest, OutreachSetResponse
 from app.portal.carriers.source_3_freightx import service as freightx_service
@@ -369,6 +368,7 @@ def get_lane(lane_id: uuid.UUID):
                 pickup_date=detail.lane.pickup_date,
                 status=detail.lane.status,
                 notes=detail.lane.notes,
+                campaign_config=json.loads(detail.lane.campaign_config_json or "{}"),
                 created_at=detail.lane.created_at,
             ),
             stops=[

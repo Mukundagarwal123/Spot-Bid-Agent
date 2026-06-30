@@ -9,7 +9,14 @@ from pydantic import ValidationError
 from app.db.base import session_scope
 from app.portal.outreach import metrics as outreach_metrics
 from app.portal.outreach import service as outreach_service
-from app.portal.outreach.schemas import CarrierReplyRequest, EndCampaignRequest, FollowUpRequest, OutreachRequest
+from app.portal.outreach.schemas import (
+    CarrierReplyRequest,
+    EndCampaignRequest,
+    FollowUpRequest,
+    OutreachRequest,
+    WhatsAppReplyRequest,
+)
+from app.services.whatsapp_service import WhatsAppSendError
 
 outreach_bp = Blueprint("outreach_api", __name__, url_prefix="/portal")
 logger = structlog.get_logger(__name__)
@@ -57,6 +64,8 @@ def outreach_send(lane_id: uuid.UUID):
     try:
         with session_scope() as db:
             result = outreach_service.send(db, lane_id, req, request_id)
+    except WhatsAppSendError as exc:
+        return jsonify({"detail": f"WhatsApp campaign failed: {exc}"}), 502
     except ValueError as exc:
         msg = str(exc)
         if msg == "lane_not_found":
@@ -64,7 +73,9 @@ def outreach_send(lane_id: uuid.UUID):
         if msg == "no_outreach_set":
             return jsonify({"detail": "No carrier data available. Try again once sources have loaded."}), 409
         if msg == "no_valid_recipients":
-            return jsonify({"detail": "No valid email addresses found for the selected sources."}), 422
+            return jsonify({"detail": "No valid email addresses or WhatsApp numbers found for the selected channels."}), 422
+        if msg == "whatsapp_template_required":
+            return jsonify({"detail": "Select an approved WhatsApp template before sending."}), 422
         raise
 
     return jsonify(result.model_dump(mode="json")), 201
@@ -148,16 +159,46 @@ def export_outreach_rows(lane_id: uuid.UUID):
 
 @outreach_bp.get("/lanes/<uuid:lane_id>/outreach/thread")
 def get_carrier_thread(lane_id: uuid.UUID):
+    channel = request.args.get("channel", "email").strip().lower()
     email = request.args.get("email", "").strip()
-    if not email:
+    phone = request.args.get("phone", "").strip()
+    if channel == "whatsapp" and not phone:
+        return jsonify({"detail": "phone parameter required"}), 400
+    if channel != "whatsapp" and not email:
         return jsonify({"detail": "email parameter required"}), 400
     try:
         with session_scope() as db:
-            result = outreach_service.get_carrier_thread(db, lane_id, email)
+            result = (
+                outreach_service.get_whatsapp_thread(db, lane_id, phone)
+                if channel == "whatsapp"
+                else outreach_service.get_carrier_thread(db, lane_id, email)
+            )
     except Exception as exc:
         logger.exception("outreach.thread.error", email=email, error=str(exc))
         return jsonify({"detail": "Failed to load thread"}), 500
     return jsonify(result.model_dump(mode="json")), 200
+
+
+@outreach_bp.post("/lanes/<uuid:lane_id>/outreach/whatsapp-reply")
+def send_whatsapp_reply(lane_id: uuid.UUID):
+    payload = request.get_json(silent=True) or {}
+    request_id = getattr(g, "correlation_id", "")
+    try:
+        req = WhatsAppReplyRequest.model_validate(payload)
+    except ValidationError as exc:
+        return _err(exc)
+    try:
+        with session_scope() as db:
+            result = outreach_service.send_whatsapp_reply(db, lane_id, req, request_id)
+    except WhatsAppSendError as exc:
+        return jsonify({"detail": f"WhatsApp send failed: {exc}"}), 502
+    except ValueError as exc:
+        if str(exc) == "lane_not_found":
+            return jsonify({"detail": "Lane not found"}), 404
+        if str(exc) == "message_required":
+            return jsonify({"detail": "Message body or template is required."}), 422
+        raise
+    return jsonify(result), 200
 
 
 @outreach_bp.post("/lanes/<uuid:lane_id>/outreach/carrier-reply")

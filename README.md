@@ -22,14 +22,14 @@ AI-assisted spot bid automation for freight loads tagged `#spotbid` in Turvo.
 - Backend/UI: `Python`, `Flask`, `Jinja`, minimal vanilla JS, `LangGraph`
 - Queue/cache: `Redis` + worker
 - DB: `PostgreSQL (AWS RDS/Aurora)`
-- Comms: `Resend` + `Twilio (SMS + WhatsApp)`
+- Comms: `Resend` + Meta WhatsApp Business Cloud API
 - Logs/observability: `Grafana Cloud Free` + OpenTelemetry
 
 ## Local Setup (Planned)
 1. Copy `.env.example` to `.env`.
 2. Install backend dependencies.
 3. Start Flask app.
-4. Configure webhooks in Turvo, Resend, Twilio.
+4. Configure webhooks in Turvo, Resend, and Meta WhatsApp.
 
 ## Logging Recommendation
 Use `docs/logging-observability.md` as the implementation guide.

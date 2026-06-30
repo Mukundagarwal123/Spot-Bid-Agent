@@ -76,6 +76,9 @@ class LaneCreateRequest(BaseModel):
     include_internal: bool = True
     include_dat: bool = True
     include_crr_model: bool = True
+    channels: list[str] = ["email", "whatsapp"]
+    manual_recipients: list[dict[str, str]] = []
+    whatsapp_source_types: list[str] = ["internal", "dat", "manual"]
 
     @field_validator("origin_city", "destination_city")
     @classmethod
@@ -159,6 +162,7 @@ class LaneInfo(BaseModel):
     pickup_date: date | None
     status: str
     notes: str | None
+    campaign_config: dict = {}
     created_at: datetime
 
 

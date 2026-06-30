@@ -19,6 +19,9 @@ def run_column_migrations(engine: Engine) -> None:
         if "notes" not in cols:
             conn.execute(text("ALTER TABLE portal_lanes ADD COLUMN notes TEXT"))
             logger.info("migration.applied", table="portal_lanes", column="notes")
+        if "campaign_config_json" not in cols:
+            conn.execute(text("ALTER TABLE portal_lanes ADD COLUMN campaign_config_json TEXT DEFAULT '{}'"))
+            logger.info("migration.applied", table="portal_lanes", column="campaign_config_json")
 
         cols = _existing_columns(conn, "outreach_messages")
         if "source_type" not in cols:
@@ -30,6 +33,33 @@ def run_column_migrations(engine: Engine) -> None:
         if "is_follow_up" not in cols:
             conn.execute(text("ALTER TABLE outreach_messages ADD COLUMN is_follow_up BOOLEAN NOT NULL DEFAULT 0"))
             logger.info("migration.applied", table="outreach_messages", column="is_follow_up")
+
+        cols = _existing_columns(conn, "outreach_batches")
+        batch_columns = {
+            "send_email": "BOOLEAN NOT NULL DEFAULT 1",
+            "send_whatsapp": "BOOLEAN NOT NULL DEFAULT 0",
+            "whatsapp_template_name": "VARCHAR(100)",
+            "whatsapp_language": "VARCHAR(20)",
+            "email_sent_count": "INTEGER NOT NULL DEFAULT 0",
+            "whatsapp_sent_count": "INTEGER NOT NULL DEFAULT 0",
+        }
+        for column, definition in batch_columns.items():
+            if column not in cols:
+                conn.execute(text(f"ALTER TABLE outreach_batches ADD COLUMN {column} {definition}"))
+                logger.info("migration.applied", table="outreach_batches", column=column)
+
+        cols = _existing_columns(conn, "messaging_messages")
+        message_columns = {
+            "lane_id": "CHAR(32)",
+            "batch_id": "CHAR(32)",
+            "outreach_row_id": "CHAR(32)",
+            "carrier_name": "VARCHAR(500)",
+            "source_type": "VARCHAR(30)",
+        }
+        for column, definition in message_columns.items():
+            if column not in cols:
+                conn.execute(text(f"ALTER TABLE messaging_messages ADD COLUMN {column} {definition}"))
+                logger.info("migration.applied", table="messaging_messages", column=column)
 
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS bounced_emails (

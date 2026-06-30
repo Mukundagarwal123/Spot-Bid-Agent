@@ -66,6 +66,7 @@ class Settings(BaseSettings):
     whatsapp_access_token: str = ""
     whatsapp_app_secret: str = ""
     whatsapp_verify_token: str = ""
+    whatsapp_templates_json: str = "[]"
 
     @property
     def resend_sender(self) -> str:

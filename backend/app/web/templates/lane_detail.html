@@ -83,10 +83,34 @@
             </label>
           </div>
 
-          <!-- Disabled channel notice -->
-          <div class="disabled-channels-notice">
-            <span class="dcn-icon">💬</span>
-            <span><strong>WhatsApp &amp; SMS</strong> — Coming soon</span>
+          <div class="wz-pane-title" style="margin-top:16px">Campaign Channels</div>
+          <div class="channel-selector">
+            <label class="channel-option on" id="channel-email-option">
+              <input type="checkbox" id="channel-email" checked />
+              <span class="channel-icon">✉</span>
+              <span><strong>Email</strong><small>Personalized outreach</small></span>
+              <span class="channel-check">✓</span>
+            </label>
+            <label class="channel-option on whatsapp" id="channel-whatsapp-option">
+              <input type="checkbox" id="channel-whatsapp" checked />
+              <span class="channel-icon">◉</span>
+              <span><strong>WhatsApp</strong><small>Approved template</small></span>
+              <span class="channel-check">✓</span>
+            </label>
+          </div>
+
+          <div class="whatsapp-config" id="whatsapp-config">
+            <label class="email-edit-label" for="whatsapp-template">Approved template</label>
+            <select class="email-edit-input" id="whatsapp-template">
+              <option value="">Loading approved templates…</option>
+            </select>
+            <div class="wa-source-label">Send WhatsApp to</div>
+            <div class="wa-source-grid">
+              <label><input type="checkbox" data-wa-source="internal" checked /> Internal</label>
+              <label><input type="checkbox" data-wa-source="dat" checked /> DAT</label>
+              <label><input type="checkbox" data-wa-source="crr_model" /> CRR Model</label>
+              <label><input type="checkbox" data-wa-source="manual" checked /> Manual</label>
+            </div>
           </div>
 
           <div class="manual-emails-section hidden" id="manual-emails-section">
@@ -140,7 +164,7 @@
           <div class="wz-sending-state">
             <div class="wz-spinner"></div>
             <div class="wz-sending-label">Sending campaign…</div>
-            <div class="wz-sending-sub">Dispatching emails to all selected carriers</div>
+          <div class="wz-sending-sub">Dispatching email and WhatsApp outreach to selected carriers</div>
           </div>
         </div>
 
@@ -149,12 +173,16 @@
       <!-- ── Right panel: live email preview ───────────────────── -->
       <div class="wizard-preview-panel" id="wizard-preview-panel">
         <div class="preview-panel-header">
-          <span class="preview-panel-title">Email Preview</span>
+          <div class="preview-channel-tabs">
+            <button class="preview-channel-tab active" data-preview-channel="email">Email Preview</button>
+            <button class="preview-channel-tab" data-preview-channel="whatsapp">WhatsApp Preview</button>
+          </div>
           <div class="preview-panel-actions">
             <span class="preview-panel-hint">Personalised per carrier</span>
             <button class="edit-email-btn" id="edit-email-btn">✏️ Edit Email</button>
           </div>
         </div>
+        <div id="email-preview-content">
         <div class="preview-subject-row" id="preview-subject-row">
           <span class="preview-subject-label">Subject</span>
           <span class="preview-subject-val" id="preview-subject-val">—</span>
@@ -178,8 +206,32 @@
           <iframe id="email-preview-iframe" frameborder="0" scrolling="auto"
             title="Email preview" sandbox="allow-same-origin"></iframe>
         </div>
+        </div>
+        <div class="whatsapp-preview-content hidden" id="whatsapp-preview-content">
+          <div class="wa-phone-frame">
+            <div class="wa-phone-top">WhatsApp Business</div>
+            <div class="wa-chat-bg">
+              <div class="wa-template-bubble">
+                <div class="wa-template-kicker">APPROVED TEMPLATE</div>
+                <div id="wa-template-preview-text">Choose an approved template to preview the campaign message.</div>
+                <div class="wa-template-time">Template message</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
+    </div>
+
+    <div class="channel-metrics" id="channel-metrics">
+      <div class="channel-metric-block email">
+        <div class="channel-metric-title">✉ Email</div>
+        <div id="email-channel-metrics">0 sent · 0 delivered · 0 opened · 0 replied</div>
+      </div>
+      <div class="channel-metric-block whatsapp">
+        <div class="channel-metric-title">◉ WhatsApp</div>
+        <div id="whatsapp-channel-metrics">0 sent · 0 delivered · 0 read · 0 replied</div>
+      </div>
     </div>
   </div>
 
@@ -267,6 +319,11 @@
                 <option value="crr_model">CRR Model</option>
                 <option value="manual">Manual</option>
               </select>
+              <select class="rtab-source-filter" id="channel-filter">
+                <option value="all">All channels</option>
+                <option value="email">Email</option>
+                <option value="whatsapp">WhatsApp</option>
+              </select>
               <input type="text" class="rtab-search" id="carrier-search" placeholder="Search carrier, email, phone…" />
             </div>
           </div>
@@ -319,6 +376,9 @@
     <div class="thread-compose">
       <div class="thread-compose-header">Reply</div>
       <input type="text" class="thread-compose-subject" id="thread-reply-subject" placeholder="Subject…" />
+      <select class="thread-compose-subject hidden" id="thread-template-select">
+        <option value="">Use free-form reply (24-hour window)</option>
+      </select>
       <textarea class="thread-compose-body" id="thread-reply-body" rows="4" placeholder="Type your reply…"></textarea>
       <div class="thread-compose-footer">
         <div class="thread-reply-error hidden" id="thread-reply-error"></div>

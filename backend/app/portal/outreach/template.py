@@ -137,8 +137,8 @@ def generate(lane: PortalLane, notes: str, carrier_name: str = "") -> EmailDraft
     notes_html_block = ""
     if notes and notes.strip():
         notes_text_block = (
-            "\nSpecial Notes\n"
-            "-------------\n"
+            "\nAdditional Notes\n"
+            "----------------\n"
             f"{notes.strip()}\n\n"
         )
         notes_html_block = _NOTES_HTML_BLOCK.format(notes=notes.strip())

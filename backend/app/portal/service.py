@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -70,6 +71,20 @@ def create_lane(db: Session, req: LaneCreateRequest) -> PortalLane:
         equipment_type=req.equipment_type.value,
         pickup_date=req.pickup_date,
         notes=req.notes or None,
+        campaign_config_json=json.dumps({
+            "sources": {
+                "internal": req.include_internal,
+                "dat": req.include_dat,
+                "crr_model": req.include_crr_model,
+                "manual": bool(req.manual_recipients),
+            },
+            "channels": {
+                "email": "email" in req.channels,
+                "whatsapp": "whatsapp" in req.channels,
+            },
+            "manual_recipients": req.manual_recipients,
+            "whatsapp_source_types": req.whatsapp_source_types,
+        }),
         status="new",
         created_at=now,
         updated_at=now,

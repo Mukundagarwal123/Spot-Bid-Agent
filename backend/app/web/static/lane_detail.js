@@ -11,12 +11,16 @@ const state = {
   lane:                null,
   metrics:             null,
   prevMetrics:         null,
-  sources:             { internal: true, dat: true, crr_model: true, manual: false },
+  sources:             { internal: true, dat: true, crr_model: false, manual: true },
+  channels:            { email: true, whatsapp: true },
+  whatsappSources:     ["internal", "dat", "manual"],
+  whatsappTemplates:   [],
   notes:               "",
   previewData:         null,
   pollTimer:           null,
   activeTab:           "all",
   sourceFilter:        "all",
+  channelFilter:       "all",
   searchTerm:          "",
   allResponses:        [],
   internal_filter_mode: "city_state",  // "city_state" | "state_only"
@@ -39,16 +43,33 @@ const pct     = (n, d) => d ? Math.round(n / d * 100) + "%" : "0%";
 function loadSession() {
   try {
     const raw = sessionStorage.getItem(`lane_init_${LANE_ID}`);
-    if (!raw) return;
+    if (!raw) return false;
     const d = JSON.parse(raw);
     if (d.sources) Object.assign(state.sources, d.sources);
+    if (d.channels) Object.assign(state.channels, d.channels);
+    if (d.whatsapp_source_types) state.whatsappSources = d.whatsapp_source_types;
     if (d.notes)   state.notes = d.notes;
-    if (d.manual_emails?.length) {
+    const manualRows = d.manual_recipients || d.manual_emails || [];
+    if (manualRows.length) {
       state.sources.manual = true;
-      d.manual_emails.forEach(e => addManualRow(e));
+      manualRows.forEach(e => addManualRow(e));
       document.getElementById("manual-emails-section")?.classList.remove("hidden");
     }
-  } catch (_) {}
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyStoredCampaignConfig(config) {
+  if (!config) return;
+  if (config.sources) Object.assign(state.sources, config.sources);
+  if (config.channels) Object.assign(state.channels, config.channels);
+  if (config.whatsapp_source_types) state.whatsappSources = config.whatsapp_source_types;
+  if (config.manual_recipients?.length) {
+    state.sources.manual = true;
+    config.manual_recipients.forEach(entry => addManualRow(entry));
+  }
 }
 
 /* ── Stage rail ───────────────────────────────────────────────────── */
@@ -129,6 +150,7 @@ function renderSourceSummary() {
   if (el) el.innerHTML = chips || `<span class="src-summary-none">No sources selected — go back and add a lane.</span>`;
   // Show/hide internal filter toggle based on whether internal source is selected
   document.getElementById("internal-filter-section")?.classList.toggle("hidden", !state.sources.internal);
+  document.getElementById("manual-emails-section")?.classList.toggle("hidden", !state.sources.manual);
 }
 
 function addManualRow(entry = null) {
@@ -138,6 +160,7 @@ function addManualRow(entry = null) {
   row.innerHTML = `
     <input type="text"  class="manual-carrier-name" placeholder="Carrier Name"  value="${entry?.carrier_name || ""}" />
     <input type="email" class="manual-email-addr"   placeholder="Email address" value="${entry?.email || ""}" />
+    <input type="tel" class="manual-phone" placeholder="+1 805 555 1212" value="${entry?.phone || ""}" />
     <button type="button" class="rm-btn">×</button>`;
   row.querySelector(".rm-btn").addEventListener("click", () => { row.remove(); debouncedPreview(); });
   row.querySelectorAll("input").forEach(i => i.addEventListener("input", debouncedPreview));
@@ -149,6 +172,97 @@ function collectManualRows() {
     carrier_name: r.querySelector(".manual-carrier-name")?.value?.trim() || "",
     email:        r.querySelector(".manual-email-addr")?.value?.trim()   || "",
   })).filter(e => e.email);
+}
+
+function collectManualPhones() {
+  return [...document.querySelectorAll(".manual-row")].map(r => ({
+    carrier_name: r.querySelector(".manual-carrier-name")?.value?.trim() || "",
+    phone:        r.querySelector(".manual-phone")?.value?.trim() || "",
+  })).filter(entry => entry.phone);
+}
+
+function selectedWhatsAppSources() {
+  return [...document.querySelectorAll("[data-wa-source]:checked")].map(input => input.dataset.waSource);
+}
+
+function campaignPayload() {
+  return {
+    include_internal:  state.sources.internal,
+    include_dat:       state.sources.dat,
+    include_crr_model: state.sources.crr_model,
+    send_email:        state.channels.email,
+    send_whatsapp:     state.channels.whatsapp,
+    whatsapp_template_name: document.getElementById("whatsapp-template")?.value || "",
+    whatsapp_language: "en_US",
+    whatsapp_source_types: selectedWhatsAppSources(),
+    test_mode:         false,
+    manual_emails:     collectManualRows(),
+    manual_phones:     collectManualPhones(),
+    notes:             state.notes,
+  };
+}
+
+async function initCampaignChannels() {
+  const email = document.getElementById("channel-email");
+  const whatsapp = document.getElementById("channel-whatsapp");
+  email.checked = state.channels.email;
+  whatsapp.checked = state.channels.whatsapp;
+
+  const sync = () => {
+    state.channels.email = email.checked;
+    state.channels.whatsapp = whatsapp.checked;
+    document.getElementById("channel-email-option")?.classList.toggle("on", email.checked);
+    document.getElementById("channel-whatsapp-option")?.classList.toggle("on", whatsapp.checked);
+    document.getElementById("whatsapp-config")?.classList.toggle("hidden", !whatsapp.checked);
+  };
+  email.addEventListener("change", sync);
+  whatsapp.addEventListener("change", sync);
+
+  document.querySelectorAll("[data-wa-source]").forEach(input => {
+    input.checked = state.whatsappSources.includes(input.dataset.waSource);
+  });
+
+  const select = document.getElementById("whatsapp-template");
+  try {
+    const result = await api("/api/whatsapp/templates");
+    state.whatsappTemplates = result.templates || [];
+    select.innerHTML = state.whatsappTemplates.length
+      ? `<option value="">Select an approved template…</option>${state.whatsappTemplates.map(template =>
+          `<option value="${template.name}" data-language="${template.language || "en_US"}">${template.label || template.name}</option>`
+        ).join("")}`
+      : `<option value="">No approved templates configured</option>`;
+    const threadSelect = document.getElementById("thread-template-select");
+    if (threadSelect) {
+      threadSelect.innerHTML = `<option value="">Use free-form reply (24-hour window)</option>${state.whatsappTemplates.map(template =>
+        `<option value="${template.name}">${template.label || template.name}</option>`
+      ).join("")}`;
+    }
+  } catch (_) {
+    select.innerHTML = `<option value="">Templates unavailable</option>`;
+  }
+
+  select.addEventListener("change", () => {
+    const selected = state.whatsappTemplates.find(template => template.name === select.value);
+    document.getElementById("wa-template-preview-text").textContent =
+      selected?.preview || selected?.label || (select.value ? `Template: ${select.value}` : "Choose an approved template to preview the campaign message.");
+    if (state.previewData) {
+      const sendBtn = document.getElementById("launch-campaign-btn");
+      const whatsappCount = state.previewData.whatsapp_recipient_count || 0;
+      sendBtn.disabled = state.channels.whatsapp && whatsappCount > 0 && !select.value;
+      if (!sendBtn.disabled) document.getElementById("wizard-step2-error")?.classList.add("hidden");
+    }
+  });
+
+  document.querySelectorAll(".preview-channel-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".preview-channel-tab").forEach(item => item.classList.remove("active"));
+      tab.classList.add("active");
+      const showWhatsApp = tab.dataset.previewChannel === "whatsapp";
+      document.getElementById("email-preview-content").classList.toggle("hidden", showWhatsApp);
+      document.getElementById("whatsapp-preview-content").classList.toggle("hidden", !showWhatsApp);
+    });
+  });
+  sync();
 }
 
 /* ── 3-step wizard navigation ─────────────────────────────────────── */
@@ -291,11 +405,14 @@ function _ftSetState(k, state_, countVal, statusText) {
 async function onCheckCarriers() {
   const errEl = document.getElementById("wizard-step1-error");
   errEl.classList.add("hidden");
+  if (!state.channels.email && !state.channels.whatsapp) {
+    errEl.textContent = "Select at least one campaign channel.";
+    errEl.classList.remove("hidden");
+    return;
+  }
 
   state.notes = document.getElementById("launch-notes").value || "";
   state.source_limits = {};  // reset limits on each new fetch
-  const manualEmails = collectManualRows();
-
   // Read internal filter mode from radio buttons
   state.internal_filter_mode =
     document.querySelector('input[name="internal_filter"]:checked')?.value || "city_state";
@@ -396,40 +513,42 @@ async function onCheckCarriers() {
   try {
     const preview = await api(`/portal/lanes/${LANE_ID}/outreach/preview`, {
       method: "POST",
-      body: JSON.stringify({
-        include_internal:  state.sources.internal,
-        include_dat:       state.sources.dat,
-        include_crr_model: state.sources.crr_model,
-        test_mode:         false,
-        manual_emails:     manualEmails,
-        notes:             state.notes,
-      }),
+      body: JSON.stringify(campaignPayload()),
     });
     state.previewData = preview;
 
     activeSources.forEach(k => {
       const count = preview.recipient_count_by_source?.[SRC_LABEL[k]] ?? 0;
       if (count > 0) {
-        _ftSetState(k, "ready", count, `${count} email${count !== 1 ? "s" : ""} ready`);
+        _ftSetState(k, "ready", count, `${count} contact${count !== 1 ? "s" : ""} ready`);
       } else {
-        _ftSetState(k, null, 0, "No emails for this lane");
+        _ftSetState(k, null, 0, "No eligible email or WhatsApp contacts");
       }
     });
 
     const total   = preview.recipient_count;
+    const contacts = preview.unique_contact_count ?? total;
+    const emailCount = preview.email_recipient_count ?? total;
+    const whatsappCount = preview.whatsapp_recipient_count ?? 0;
     const bounced = preview.bounced_count ?? 0;
 
     if (total > 0) {
       const bouncedNote = bounced > 0
         ? `<div class="wz-skipped-notice">${bounced} email${bounced !== 1 ? "s" : ""} skipped — previously bounced</div>`
         : "";
-      summaryEl.innerHTML = `<div class="wz-total-num">${total}</div>
-        <div class="wz-total-label">email${total !== 1 ? "s" : ""} ready to send</div>
+      summaryEl.innerHTML = `<div class="wz-total-num">${contacts}</div>
+        <div class="wz-total-label">unique contact${contacts !== 1 ? "s" : ""} ready</div>
+        <div class="wz-channel-counts">✉ ${emailCount} email &nbsp; · &nbsp; ◉ ${whatsappCount} WhatsApp</div>
         ${bouncedNote}`;
       summaryEl.classList.remove("hidden");
       buildSourceLimitInputs(preview);
-      sendBtn.textContent = `🚀 Send Campaign — ${total} email${total !== 1 ? "s" : ""}`;
-      sendBtn.disabled = false;
+      sendBtn.textContent = `Send Campaign — ${emailCount} email · ${whatsappCount} WhatsApp`;
+      const templateMissing = state.channels.whatsapp && whatsappCount > 0 && !document.getElementById("whatsapp-template")?.value;
+      sendBtn.disabled = templateMissing;
+      if (templateMissing) {
+        document.getElementById("wizard-step2-error").textContent = "Select an approved WhatsApp template before sending.";
+        document.getElementById("wizard-step2-error").classList.remove("hidden");
+      }
       sendBtn.classList.remove("hidden");
       if (dlBtn) dlBtn.classList.remove("hidden");
     } else {
@@ -462,19 +581,14 @@ async function onLaunchCampaign() {
     await api(`/portal/lanes/${LANE_ID}/outreach/send`, {
       method: "POST",
       body: JSON.stringify({
-        include_internal:  state.sources.internal,
-        include_dat:       state.sources.dat,
-        include_crr_model: state.sources.crr_model,
-        test_mode:         false,
-        manual_emails:     collectManualRows(),
-        notes:             state.notes,
-        source_limits:     Object.keys(state.source_limits).length ? state.source_limits : null,
+        ...campaignPayload(),
+        source_limits: Object.keys(state.source_limits).length ? state.source_limits : null,
       }),
     });
 
     document.getElementById("wizard-shell").classList.add("hidden");
     document.getElementById("live-dash").classList.remove("hidden");
-    logAdd("Campaign launched — emails dispatched", "send");
+    logAdd("Campaign launched — email and WhatsApp outreach dispatched", "send");
     renderStageRail(3);
     document.getElementById("live-indicator").classList.remove("hidden");
     document.getElementById("log-live-indicator").innerHTML =
@@ -496,7 +610,7 @@ async function onLaunchCampaign() {
     errEl.textContent = err?.payload?.detail || err?.message || "Failed to send. Please try again.";
     errEl.classList.remove("hidden");
     sendBtn.disabled = false;
-    sendBtn.textContent = `🚀 Send Campaign — ${state.previewData?.recipient_count ?? ""} emails`;
+    sendBtn.textContent = "Send Campaign";
   }
 }
 
@@ -524,6 +638,17 @@ function renderLiveMetrics(m, prev) {
       if (card) { card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash"); }
     }
   });
+
+  const email = m.channel_metrics?.email || {};
+  const whatsapp = m.channel_metrics?.whatsapp || {};
+  const emailEl = document.getElementById("email-channel-metrics");
+  const whatsappEl = document.getElementById("whatsapp-channel-metrics");
+  if (emailEl) {
+    emailEl.textContent = `${email.sent || 0} sent · ${email.delivered || 0} delivered · ${email.opened || 0} opened · ${email.replied || 0} replied`;
+  }
+  if (whatsappEl) {
+    whatsappEl.textContent = `${whatsapp.sent || 0} sent · ${whatsapp.delivered || 0} delivered · ${whatsapp.opened || 0} read · ${whatsapp.replied || 0} replied`;
+  }
 }
 
 /* ── Activity log ─────────────────────────────────────────────────── */
@@ -569,6 +694,9 @@ function applyFilters() {
     });
   }
 
+  if (state.channelFilter !== "all")
+    rows = rows.filter(r => (r.channel || "email") === state.channelFilter);
+
   if (state.searchTerm) {
     const q = state.searchTerm.toLowerCase();
     rows = rows.filter(r =>
@@ -592,8 +720,10 @@ function applyFilters() {
     const isEngaged = ["opened", "replied"].includes(r.status);
     const rowCls = ["clickable-row", r.status === "replied" ? "row-replied" : r.status === "opened" ? "row-opened" : ""].join(" ").trim();
     const safeEmail = (r.email || "").replace(/"/g, "&quot;");
+    const safePhone = (r.phone || "").replace(/"/g, "&quot;");
     const safeName  = (r.carrier_name || "").replace(/"/g, "&quot;");
-    return `<tr class="${rowCls}" data-email="${safeEmail}" data-carrier="${safeName}">
+    const channel = r.channel || "email";
+    return `<tr class="${rowCls}" data-email="${safeEmail}" data-phone="${safePhone}" data-channel="${channel}" data-carrier="${safeName}">
       <td class="rt-carrier">
         ${r.carrier_name || "—"}
         ${r.is_follow_up ? ' <span style="font-size:10px;color:#7c3aed;font-weight:700">(FU)</span>' : ""}
@@ -601,6 +731,7 @@ function applyFilters() {
       </td>
       <td class="rt-email" title="${safeEmail}">${r.email || "—"}</td>
       <td class="rt-phone">${r.phone || "—"}</td>
+      <td><span class="channel-badge ${channel}">${channel === "whatsapp" ? "◉ WhatsApp" : "✉ Email"}</span></td>
       <td><span class="source-badge ${src}">${r.source || src}</span></td>
       <td><span class="stage-badge ${r.status}">${STAGE_ICONS[r.status] || ""} ${r.status}</span></td>
       <td class="rt-count">${r.attempt_number || 1}</td>
@@ -615,6 +746,7 @@ function applyFilters() {
         <th>Carrier</th>
         <th>Email</th>
         <th>Phone</th>
+        <th>Channel</th>
         <th>Source</th>
         <th>Stage</th>
         <th style="text-align:center">Attempts</th>
@@ -626,7 +758,12 @@ function applyFilters() {
     <div class="rt-footer">${rows.length} recipient${rows.length !== 1 ? "s" : ""} shown</div>`;
 
   wrap.querySelectorAll(".clickable-row").forEach(tr => {
-    tr.addEventListener("click", () => openCarrierThread(tr.dataset.email, tr.dataset.carrier));
+    tr.addEventListener("click", () => openCarrierThread({
+      email: tr.dataset.email,
+      phone: tr.dataset.phone,
+      channel: tr.dataset.channel,
+      carrierName: tr.dataset.carrier,
+    }));
   });
 }
 
@@ -634,11 +771,12 @@ function applyFilters() {
 function exportCsv() {
   const rows = state.allResponses;
   if (!rows.length) return;
-  const header = ["Carrier", "Email", "Phone", "Source", "Stage", "Attempts", "Last Activity", "Reply"].join(",");
+  const header = ["Carrier", "Email", "Phone", "Channel", "Source", "Stage", "Attempts", "Last Activity", "Reply"].join(",");
   const body = rows.map(r => [
     `"${(r.carrier_name || "").replace(/"/g, '""')}"`,
     `"${(r.email        || "").replace(/"/g, '""')}"`,
     `"${(r.phone        || "").replace(/"/g, '""')}"`,
+    r.channel || "email",
     `"${(r.source       || "").replace(/"/g, '""')}"`,
     r.status || "",
     r.attempt_number || 1,
@@ -756,15 +894,19 @@ async function onEndCampaign() {
 }
 
 /* ── Carrier thread panel ─────────────────────────────────────────── */
-const threadState = { email: null, carrierName: null };
+const threadState = { email: null, phone: null, channel: "email", carrierName: null };
 
-function openCarrierThread(email, carrierName) {
-  if (!email) return;
-  threadState.email       = email;
-  threadState.carrierName = carrierName || email;
+function openCarrierThread({ email = "", phone = "", channel = "email", carrierName = "" }) {
+  const address = channel === "whatsapp" ? phone : email;
+  if (!address) return;
+  threadState.email = email;
+  threadState.phone = phone;
+  threadState.channel = channel;
+  threadState.carrierName = carrierName || address;
 
-  document.getElementById("thread-carrier-name").textContent = carrierName || email;
-  document.getElementById("thread-carrier-email").textContent = email;
+  document.getElementById("thread-carrier-name").textContent = carrierName || address;
+  document.getElementById("thread-carrier-email").textContent =
+    channel === "whatsapp" ? `WhatsApp · ${phone}` : email;
   document.getElementById("thread-messages").innerHTML =
     `<div class="thread-loading"><div class="thread-spinner"></div><span>Loading conversation…</span></div>`;
   document.getElementById("thread-reply-subject").value = "";
@@ -774,20 +916,28 @@ function openCarrierThread(email, carrierName) {
   document.getElementById("thread-overlay").classList.remove("hidden");
   document.getElementById("thread-panel").classList.remove("hidden");
 
-  fetchCarrierThread(email);
+  const isWhatsApp = channel === "whatsapp";
+  document.getElementById("thread-reply-subject").classList.toggle("hidden", isWhatsApp);
+  document.getElementById("thread-template-select").classList.toggle("hidden", !isWhatsApp);
+  document.getElementById("thread-reply-body").placeholder = isWhatsApp
+    ? "Type a reply, or choose a template if the 24-hour window has closed…"
+    : "Type your reply…";
+  fetchCarrierThread();
 }
 
 function closeCarrierThread() {
   document.getElementById("thread-overlay").classList.add("hidden");
   document.getElementById("thread-panel").classList.add("hidden");
   threadState.email = null;
+  threadState.phone = null;
 }
 
-async function fetchCarrierThread(email) {
+async function fetchCarrierThread() {
   try {
-    const thread = await api(
-      `/portal/lanes/${LANE_ID}/outreach/thread?email=${encodeURIComponent(email)}`
-    );
+    const query = threadState.channel === "whatsapp"
+      ? `channel=whatsapp&phone=${encodeURIComponent(threadState.phone)}`
+      : `channel=email&email=${encodeURIComponent(threadState.email)}`;
+    const thread = await api(`/portal/lanes/${LANE_ID}/outreach/thread?${query}`);
     renderThreadMessages(thread);
 
     // Pre-fill reply subject from latest outbound message
@@ -812,7 +962,7 @@ function renderThreadMessages(thread) {
   container.innerHTML = thread.messages.map(msg => {
     const isOut  = msg.direction === "outbound";
     const time   = fmtDT(msg.timestamp);
-    const whoTxt = isOut ? "You" : (msg.from_name || thread.email);
+    const whoTxt = isOut ? "You" : (msg.from_name || thread.email || thread.phone);
     const bodyHtml = (msg.body || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>");
 
     const statusBadge = isOut && msg.status
@@ -842,33 +992,47 @@ async function onSendCarrierReply() {
   const errEl   = document.getElementById("thread-reply-error");
   const subject = document.getElementById("thread-reply-subject").value.trim();
   const body    = document.getElementById("thread-reply-body").value.trim();
+  const templateName = document.getElementById("thread-template-select").value;
 
   errEl.classList.add("hidden");
 
-  if (!subject || !body) {
+  if (threadState.channel === "email" && (!subject || !body)) {
     errEl.textContent = "Subject and body are required.";
+    errEl.classList.remove("hidden");
+    return;
+  }
+  if (threadState.channel === "whatsapp" && !body && !templateName) {
+    errEl.textContent = "Enter a reply or choose an approved template.";
     errEl.classList.remove("hidden");
     return;
   }
 
   btn.disabled = true; btn.textContent = "Sending…";
   try {
-    await api(`/portal/lanes/${LANE_ID}/outreach/carrier-reply`, {
-      method: "POST",
-      body: JSON.stringify({
-        email:        threadState.email,
-        carrier_name: threadState.carrierName,
-        subject,
-        body,
-      }),
-    });
+    if (threadState.channel === "whatsapp") {
+      await api(`/portal/lanes/${LANE_ID}/outreach/whatsapp-reply`, {
+        method: "POST",
+        body: JSON.stringify({ phone: threadState.phone, body, template_name: templateName }),
+      });
+    } else {
+      await api(`/portal/lanes/${LANE_ID}/outreach/carrier-reply`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: threadState.email,
+          carrier_name: threadState.carrierName,
+          subject,
+          body,
+        }),
+      });
+    }
 
     document.getElementById("thread-reply-body").value    = "";
     document.getElementById("thread-reply-subject").value = "";
-    logAdd(`Reply sent to ${threadState.carrierName || threadState.email}`, "send");
+    document.getElementById("thread-template-select").value = "";
+    logAdd(`Reply sent to ${threadState.carrierName || threadState.email || threadState.phone}`, "send");
 
     // Refresh the thread so the sent reply appears
-    await fetchCarrierThread(threadState.email);
+    await fetchCarrierThread();
   } catch (err) {
     errEl.textContent = err?.payload?.detail || err?.message || "Failed to send reply.";
     errEl.classList.remove("hidden");
@@ -921,7 +1085,7 @@ function _onLimitChange(e) {
   const total = Object.values(state.source_limits).reduce((s, v) => s + v, 0);
   const sendBtn = document.getElementById("launch-campaign-btn");
   if (sendBtn && !sendBtn.classList.contains("hidden"))
-    sendBtn.textContent = `🚀 Send Campaign — ${total.toLocaleString()} email${total !== 1 ? "s" : ""}`;
+    sendBtn.textContent = `Send Campaign — up to ${total.toLocaleString()} contacts per channel`;
 }
 
 function _updateLimitsTotal() {
@@ -961,7 +1125,7 @@ async function downloadOutreachJson() {
 
 /* ── Init ─────────────────────────────────────────────────────────── */
 async function init() {
-  loadSession();
+  const sessionLoaded = loadSession();
 
   const [laneData, metricsData] = await Promise.all([
     api(`/portal/lanes/${LANE_ID}`).catch(() => null),
@@ -972,6 +1136,8 @@ async function init() {
 
   state.lane    = laneData.lane;
   state.metrics = metricsData;
+  if (!sessionLoaded) applyStoredCampaignConfig(state.lane.campaign_config);
+  await initCampaignChannels();
 
   renderHeader(state.lane);
 
@@ -986,7 +1152,7 @@ async function init() {
     renderSourceConv(metricsData.source_metrics || {});
     updateNavBtns(metricsData, state.lane);
 
-    if (metricsData.sent_at)   logAdd(`Campaign sent — ${metricsData.sent} emails dispatched`, "send", metricsData.sent_at);
+    if (metricsData.sent_at)   logAdd(`Campaign sent — ${metricsData.sent} messages dispatched`, "send", metricsData.sent_at);
     if (metricsData.opened > 0) logAdd(`${metricsData.opened} opened`,  "open");
     if (metricsData.replied > 0) logAdd(`${metricsData.replied} replied`, "reply");
 
@@ -1005,6 +1171,7 @@ async function init() {
     const notesEl = document.getElementById("launch-notes");
     if (notesEl) notesEl.value = state.notes || state.lane.notes || "";
     renderSourceSummary();
+    if (state.sources.manual && !document.querySelector(".manual-row")) addManualRow();
 
     document.getElementById("add-manual-row-btn").addEventListener("click", () => addManualRow());
     document.getElementById("launch-notes").addEventListener("input", debouncedPreview);
@@ -1038,6 +1205,11 @@ async function init() {
   // Source filter
   document.getElementById("source-filter")?.addEventListener("change", e => {
     state.sourceFilter = e.target.value;
+    applyFilters();
+  });
+
+  document.getElementById("channel-filter")?.addEventListener("change", e => {
+    state.channelFilter = e.target.value;
     applyFilters();
   });
 

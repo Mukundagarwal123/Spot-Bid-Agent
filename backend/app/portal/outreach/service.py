@@ -13,6 +13,9 @@ from app.db.models import (
     CarrierOutreachRow,
     CarrierOutreachSet,
     CarrierRelevancyRun,
+    MessagingContact,
+    MessagingConversation,
+    MessagingMessage,
     OutreachBatch,
     OutreachMessage,
     OutreachReply,
@@ -29,6 +32,7 @@ from app.portal.outreach.schemas import (
     PreviewResponse,
     RecipientItem,
     ThreadMessage,
+    WhatsAppReplyRequest,
 )
 
 logger = structlog.get_logger(__name__)
@@ -80,14 +84,33 @@ class _Recipient:
     def __init__(
         self,
         carrier_name: str,
-        email: str,
+        email: str = "",
+        phone: str = "",
         row_id: uuid.UUID | None = None,
         source_type: str = "internal",
     ):
         self.carrier_name = carrier_name
         self.email = email
+        self.phone = _normalize_phone(phone)
         self.row_id = row_id
         self.source_type = source_type
+
+
+def _normalize_phone(phone: str) -> str:
+    return "".join(ch for ch in (phone or "") if ch.isdigit())
+
+
+def _dedupe_recipients(recipients: list[_Recipient], field: str) -> list[_Recipient]:
+    seen: set[str] = set()
+    result: list[_Recipient] = []
+    for recipient in recipients:
+        value = getattr(recipient, field, "")
+        key = value.strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        result.append(recipient)
+    return result
 
 
 def _resolve_recipients(
@@ -97,8 +120,9 @@ def _resolve_recipients(
 ) -> tuple[list[_Recipient], list[str]]:
     """Build final recipient list based on source selection.
 
-    In test_mode: only manual_emails are used (carrier sources skipped).
-    In production: carrier sources + any manual_emails combined.
+    In test_mode only manual recipients are used. In production, selected carrier
+    sources and manual recipients are combined. Email and phone eligibility is
+    evaluated later so a carrier without email can still receive WhatsApp.
     """
     recipients: list[_Recipient] = []
     sources_seen: list[str] = []
@@ -112,6 +136,12 @@ def _resolve_recipients(
                     email=email,
                     source_type="manual",
                 ))
+        for entry in req.manual_phones:
+            recipients.append(_Recipient(
+                carrier_name=entry.carrier_name or entry.phone,
+                phone=entry.phone,
+                source_type="manual",
+            ))
         return recipients, (["manual"] if recipients else [])
 
     # --- Production: if NO carrier sources selected, skip DB lookup entirely ---
@@ -127,6 +157,12 @@ def _resolve_recipients(
                     email=email,
                     source_type="manual",
                 ))
+        for entry in req.manual_phones:
+            recipients.append(_Recipient(
+                carrier_name=entry.carrier_name or entry.phone,
+                phone=entry.phone,
+                source_type="manual",
+            ))
         return recipients, (["manual"] if recipients else [])
 
     # --- Production: carrier sources ---
@@ -185,9 +221,15 @@ def _resolve_recipients(
         st = _normalize_source_type(r.source)
         if not _source_included(st, req):
             continue
-        if not r.email or not r.email.strip():
+        if not (r.email and r.email.strip()) and not _normalize_phone(r.phone):
             continue
-        rec = _Recipient(carrier_name=r.carrier_name, email=r.email, row_id=r.id, source_type=st)
+        rec = _Recipient(
+            carrier_name=r.carrier_name,
+            email=r.email or "",
+            phone=r.phone or "",
+            row_id=r.id,
+            source_type=st,
+        )
         by_source.setdefault(st, []).append(rec)
 
     # Apply optional per-source limits (keyed by display label, e.g. "CRR Model")
@@ -210,7 +252,13 @@ def _resolve_recipients(
                 email=email,
                 source_type="manual",
             ))
-    if req.manual_emails and "manual" not in sources_seen:
+    for entry in req.manual_phones:
+        recipients.append(_Recipient(
+            carrier_name=entry.carrier_name or entry.phone,
+            phone=entry.phone,
+            source_type="manual",
+        ))
+    if (req.manual_emails or req.manual_phones) and "manual" not in sources_seen:
         sources_seen.append("manual")
 
     return recipients, sources_seen
@@ -246,20 +294,34 @@ def preview(
     notes = req.notes or (lane.notes or "")
     draft = template.generate(lane, notes)
 
-    # --- Bounce-list filter ---
-    all_emails = [r.email.strip().lower() for r in recipients]
+    email_recipients = _dedupe_recipients(recipients, "email") if req.send_email else []
+    whatsapp_recipients = _dedupe_recipients(
+        [r for r in recipients if r.source_type in req.whatsapp_source_types],
+        "phone",
+    ) if req.send_whatsapp else []
+
+    # Bounce filtering only applies to the email delivery path.
+    all_emails = [r.email.strip().lower() for r in email_recipients]
     bounced_set = {
         row.email
         for row in db.query(BouncedEmail).filter(BouncedEmail.email.in_(all_emails)).all()
+    } if all_emails else set()
+    active_email_recipients = [
+        r for r in email_recipients if r.email.strip().lower() not in bounced_set
+    ]
+    bounced_count = len(email_recipients) - len(active_email_recipients)
+
+    target_recipients = active_email_recipients + whatsapp_recipients
+    unique_keys = {
+        str(r.row_id) if r.row_id else (r.carrier_name.strip().lower() or r.email.lower() or r.phone)
+        for r in target_recipients
     }
-    active_recipients = [r for r in recipients if r.email.strip().lower() not in bounced_set]
-    bounced_count = len(recipients) - len(active_recipients)
 
     logger.info(
         "outreach.preview",
         request_id=request_id,
         lane_id=str(lane_id),
-        recipient_count=len(active_recipients),
+        recipient_count=len(target_recipients),
         bounced_count=bounced_count,
         test_mode=req.test_mode,
         sources=sources_seen,
@@ -267,19 +329,50 @@ def preview(
 
     display_sources = [_SOURCE_DISPLAY.get(s, s) for s in sources_seen]
 
-    by_source: dict[str, int] = {}
-    for r in active_recipients:
+    by_source_keys: dict[str, set[str]] = {}
+    for r in target_recipients:
         label = _SOURCE_DISPLAY.get(r.source_type, r.source_type)
-        by_source[label] = by_source.get(label, 0) + 1
+        key = str(r.row_id) if r.row_id else (r.carrier_name.strip().lower() or r.email.lower() or r.phone)
+        by_source_keys.setdefault(label, set()).add(key)
+    by_source = {label: len(keys) for label, keys in by_source_keys.items()}
+
+    def item(recipient: _Recipient) -> RecipientItem:
+        return RecipientItem(
+            carrier_name=recipient.carrier_name,
+            email=recipient.email,
+            phone=recipient.phone,
+            source=_SOURCE_DISPLAY.get(recipient.source_type, recipient.source_type),
+        )
+
+    channels = []
+    if req.send_email:
+        channels.append("email")
+    if req.send_whatsapp:
+        channels.append("whatsapp")
 
     return PreviewResponse(
         subject=draft.subject,
         body=draft.body,
         html_body=draft.html_body,
-        recipients=[RecipientItem(carrier_name=r.carrier_name, email=r.email) for r in active_recipients],
-        recipient_count=len(active_recipients),
+        recipients=[item(r) for r in target_recipients],
+        recipient_count=len(target_recipients),
+        unique_contact_count=len(unique_keys),
+        email_recipient_count=len(active_email_recipients),
+        whatsapp_recipient_count=len(whatsapp_recipients),
+        email_recipients=[item(r) for r in active_email_recipients],
+        whatsapp_recipients=[item(r) for r in whatsapp_recipients],
         recipient_count_by_source=by_source,
+        recipient_count_by_channel={
+            "email": len(active_email_recipients),
+            "whatsapp": len(whatsapp_recipients),
+        },
         sources_included=display_sources,
+        channels_included=channels,
+        whatsapp_template_name=req.whatsapp_template_name,
+        whatsapp_template_preview=(
+            f"Approved template: {req.whatsapp_template_name}"
+            if req.whatsapp_template_name else "Select an approved WhatsApp template before sending."
+        ),
         test_mode=req.test_mode,
         bounced_count=bounced_count,
     )
@@ -313,18 +406,27 @@ def send(
         return _batch_response(existing)
 
     recipients, sources_seen = _resolve_recipients(db, lane_id, req)
-    if not recipients:
+    email_recipients = _dedupe_recipients(recipients, "email") if req.send_email else []
+    whatsapp_recipients = _dedupe_recipients(
+        [r for r in recipients if r.source_type in req.whatsapp_source_types],
+        "phone",
+    ) if req.send_whatsapp else []
+    if req.send_whatsapp and whatsapp_recipients and not req.whatsapp_template_name.strip():
+        raise ValueError("whatsapp_template_required")
+    if not email_recipients and not whatsapp_recipients:
         raise ValueError("no_valid_recipients")
 
     # Bounce-list filter — skip any addresses Resend has previously reported as bounced
-    all_emails = [r.email.strip().lower() for r in recipients]
+    all_emails = [r.email.strip().lower() for r in email_recipients]
     bounced_set = {
         row.email
         for row in db.query(BouncedEmail).filter(BouncedEmail.email.in_(all_emails)).all()
-    }
+    } if all_emails else set()
     skipped_count = sum(1 for e in all_emails if e in bounced_set)
-    recipients = [r for r in recipients if r.email.strip().lower() not in bounced_set]
-    if not recipients:
+    email_recipients = [
+        r for r in email_recipients if r.email.strip().lower() not in bounced_set
+    ]
+    if not email_recipients and not whatsapp_recipients:
         raise ValueError("no_valid_recipients")
 
     notes = req.notes or (lane.notes or "")
@@ -340,11 +442,17 @@ def send(
         include_internal=req.include_internal,
         include_dat=req.include_dat,
         include_freightx=req.include_crr_model,
+        send_email=req.send_email,
+        send_whatsapp=req.send_whatsapp,
+        whatsapp_template_name=req.whatsapp_template_name or None,
+        whatsapp_language=req.whatsapp_language or "en_US",
         notes=notes or None,
         subject=_base_draft.subject,
         email_body=_base_draft.body,
         status="sending",
         sent_count=0,
+        email_sent_count=0,
+        whatsapp_sent_count=0,
         created_at=now,
     )
     db.add(batch)
@@ -359,18 +467,13 @@ def send(
             "text": _base_draft.body,
             "html": template.generate(lane, notes, carrier_name=r.carrier_name or "").html_body,
         }
-        for r in recipients
+        for r in email_recipients
     ]
 
-    provider_ids = sender.send_batch(send_params)
-
-    # Update lane status to in_progress when first send happens
-    if lane.status == "new":
-        lane.status = "in_progress"
-        lane.updated_at = now
+    provider_ids = sender.send_batch(send_params) if send_params else []
 
     accepted = 0
-    for recipient, msg_id in zip(recipients, provider_ids):
+    for recipient, msg_id in zip(email_recipients, provider_ids):
         if not msg_id:
             logger.warning("outreach.send.recipient_failed", email=recipient.email, lane_id=str(lane_id))
             continue
@@ -392,9 +495,47 @@ def send(
         ))
         accepted += 1
 
-    batch.sent_count = accepted
-    batch.status = "sent"
-    batch.sent_at = _utcnow()
+    whatsapp_accepted = 0
+    whatsapp_errors: list[str] = []
+    if whatsapp_recipients:
+        from app.services import whatsapp_service
+        from app.services.whatsapp_service import WhatsAppSendError
+
+        for recipient in whatsapp_recipients:
+            contact = whatsapp_service._get_or_create_contact(
+                db, recipient.phone, recipient.carrier_name or None, None
+            )
+            conversation = whatsapp_service._get_or_create_conversation(db, contact)
+            try:
+                whatsapp_service.send_template(
+                    db,
+                    conversation.id,
+                    req.whatsapp_template_name,
+                    req.whatsapp_language or "en_US",
+                    lane_id=lane_id,
+                    batch_id=batch.id,
+                    outreach_row_id=recipient.row_id,
+                    carrier_name=recipient.carrier_name,
+                    source_type=recipient.source_type,
+                )
+                whatsapp_accepted += 1
+            except WhatsAppSendError as exc:
+                whatsapp_errors.append(str(exc))
+                logger.warning(
+                    "outreach.send.whatsapp_recipient_failed",
+                    phone=recipient.phone,
+                    lane_id=str(lane_id),
+                    error=str(exc),
+                )
+
+    batch.email_sent_count = accepted
+    batch.whatsapp_sent_count = whatsapp_accepted
+    batch.sent_count = accepted + whatsapp_accepted
+    batch.status = "sent" if batch.sent_count else "failed"
+    batch.sent_at = _utcnow() if batch.sent_count else None
+    if batch.sent_count and lane.status == "new":
+        lane.status = "in_progress"
+        lane.updated_at = now
     db.commit()
 
     logger.info(
@@ -402,11 +543,15 @@ def send(
         request_id=request_id,
         lane_id=str(lane_id),
         batch_id=str(batch.id),
-        sent_count=accepted,
+        sent_count=batch.sent_count,
+        email_sent_count=accepted,
+        whatsapp_sent_count=whatsapp_accepted,
         skipped_unverified=skipped_count,
         test_mode=req.test_mode,
         sources=sources_seen,
     )
+    if batch.sent_count == 0 and whatsapp_errors:
+        raise WhatsAppSendError(whatsapp_errors[0])
     return _batch_response(batch)
 
 
@@ -642,6 +787,8 @@ def _batch_response(batch: OutreachBatch) -> OutreachBatchResponse:
         lane_id=str(batch.lane_id),
         status=batch.status,
         sent_count=batch.sent_count,
+        email_sent_count=batch.email_sent_count,
+        whatsapp_sent_count=batch.whatsapp_sent_count,
         test_mode=batch.test_mode,
     )
 
@@ -702,8 +849,124 @@ def get_carrier_thread(db: Session, lane_id: uuid.UUID, email: str) -> CarrierTh
     return CarrierThreadResponse(
         carrier_name=carrier_name,
         email=email,
+        channel="email",
         messages=[item[1] for item in items],
     )
+
+
+def get_whatsapp_thread(db: Session, lane_id: uuid.UUID, phone: str) -> CarrierThreadResponse:
+    normalized_phone = _normalize_phone(phone)
+    contact = db.query(MessagingContact).filter_by(phone=normalized_phone).first()
+    if contact is None:
+        return CarrierThreadResponse(
+            carrier_name=normalized_phone,
+            phone=normalized_phone,
+            channel="whatsapp",
+            messages=[],
+        )
+
+    conversation = (
+        db.query(MessagingConversation)
+        .filter_by(contact_id=contact.id, channel="whatsapp")
+        .first()
+    )
+    if conversation is None:
+        return CarrierThreadResponse(
+            carrier_name=contact.display_name or contact.phone,
+            phone=contact.phone,
+            channel="whatsapp",
+            messages=[],
+        )
+
+    messages = (
+        db.query(MessagingMessage)
+        .filter(MessagingMessage.conversation_id == conversation.id)
+        .order_by(MessagingMessage.created_at)
+        .all()
+    )
+    return CarrierThreadResponse(
+        carrier_name=contact.display_name or contact.phone,
+        phone=contact.phone,
+        channel="whatsapp",
+        conversation_id=str(conversation.id),
+        messages=[
+            ThreadMessage(
+                direction=message.direction,
+                body=message.body,
+                timestamp=_fmt(message.received_at or message.sent_at or message.created_at) or "",
+                status=message.status,
+                from_name=contact.display_name if message.direction == "inbound" else None,
+                channel="whatsapp",
+            )
+            for message in messages
+        ],
+    )
+
+
+def send_whatsapp_reply(
+    db: Session,
+    lane_id: uuid.UUID,
+    req: WhatsAppReplyRequest,
+    request_id: str = "",
+) -> dict:
+    lane = db.query(PortalLane).filter_by(id=lane_id).first()
+    if lane is None:
+        raise ValueError("lane_not_found")
+
+    from app.services import whatsapp_service
+
+    phone = _normalize_phone(req.phone)
+    contact = whatsapp_service._get_or_create_contact(db, phone, None, None)
+    conversation = whatsapp_service._get_or_create_conversation(db, contact)
+    db.flush()
+    latest_campaign_message = (
+        db.query(MessagingMessage)
+        .filter(
+            MessagingMessage.conversation_id == conversation.id,
+            MessagingMessage.lane_id == lane_id,
+            MessagingMessage.direction == "outbound",
+        )
+        .order_by(MessagingMessage.created_at.desc())
+        .first()
+    )
+    source_type = latest_campaign_message.source_type if latest_campaign_message else "manual"
+    outreach_row_id = latest_campaign_message.outreach_row_id if latest_campaign_message else None
+
+    if req.template_name:
+        message = whatsapp_service.send_template(
+            db,
+            conversation.id,
+            req.template_name,
+            lane_id=lane_id,
+            outreach_row_id=outreach_row_id,
+            carrier_name=contact.display_name,
+            source_type=source_type,
+        )
+    elif req.body:
+        message = whatsapp_service.send_message(
+            db,
+            conversation.id,
+            req.body,
+            lane_id=lane_id,
+            outreach_row_id=outreach_row_id,
+            carrier_name=contact.display_name,
+            source_type=source_type,
+        )
+    else:
+        raise ValueError("message_required")
+
+    logger.info(
+        "outreach.whatsapp_reply.sent",
+        request_id=request_id,
+        lane_id=str(lane_id),
+        phone=phone,
+        message_id=str(message.id),
+    )
+    return {
+        "status": message.status,
+        "message_id": str(message.id),
+        "conversation_id": str(conversation.id),
+    }
 
 
 def send_carrier_reply(

@@ -21,7 +21,7 @@
 html, body {
   margin: 0; font-family: "Segoe UI", Arial, sans-serif;
   background: var(--bg); color: var(--text);
-  min-height: 100%; -webkit-font-smoothing: antialiased;
+  min-height: 100%; overflow-x: hidden; -webkit-font-smoothing: antialiased;
 }
 .hidden { display: none !important; }
 
@@ -137,12 +137,13 @@ html, body {
 .wz-step-line.done { background: #10b981; }
 
 /* Body */
-.wizard-body { display: grid; grid-template-columns: 420px 1fr; gap: 20px; align-items: start; }
+.wizard-body { display: grid; grid-template-columns: 420px 1fr; gap: 20px; align-items: start; min-width: 0; }
 
 /* ── Left: form panel ─────────────────────────────────────────────── */
 .wizard-form-panel {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 14px; padding: 22px;
+  min-width: 0;
 }
 .wz-pane-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); margin-bottom: 10px; }
 .wz-optional   { font-size: 10px; color: #94a3b8; font-weight: 400; text-transform: none; letter-spacing: 0; }
@@ -165,10 +166,34 @@ html, body {
 }
 .dcn-icon { font-size: 14px; }
 
+.channel-selector { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 7px; }
+.channel-option {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 8px;
+  padding: 10px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer;
+  background: #fff; transition: border-color .16s ease, background .16s ease;
+}
+.channel-option input { position: absolute; opacity: 0; pointer-events: none; }
+.channel-option strong { display: block; font-size: 12px; color: var(--text); }
+.channel-option small { display: block; margin-top: 2px; font-size: 10px; color: var(--muted); }
+.channel-option.on { border-color: #93c5fd; background: #eff6ff; }
+.channel-option.whatsapp.on { border-color: #86efac; background: #f0fdf4; }
+.channel-icon { font-size: 18px; color: #1d4ed8; }
+.channel-option.whatsapp .channel-icon { color: #15803d; }
+.channel-check { color: #1d4ed8; font-weight: 800; opacity: 0; }
+.channel-option.on .channel-check { opacity: 1; }
+.whatsapp-config {
+  margin-top: 8px; padding: 11px; background: #f0fdf4; border: 1px solid #bbf7d0;
+  border-radius: 10px;
+}
+.wa-source-label { margin-top: 10px; font-size: 10px; font-weight: 800; color: #166534; text-transform: uppercase; letter-spacing: .06em; }
+.wa-source-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; margin-top: 7px; }
+.wa-source-grid label { display: flex; gap: 6px; align-items: center; font-size: 11px; color: #365443; cursor: pointer; }
+.wa-source-grid input { accent-color: #16a34a; }
+
 /* Manual emails */
 .manual-emails-section { padding: 12px; background: #f8fbff; border: 1px solid var(--line); border-radius: 9px; margin-top: 8px; }
 .manual-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
-.manual-row input { flex: 1; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font-size: 12px; font-family: inherit; background: #fff; }
+.manual-row input { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; font-size: 12px; font-family: inherit; background: #fff; }
 .manual-row input:focus { outline: none; border-color: #93c5fd; }
 .manual-row .rm-btn { border: none; background: none; color: #94a3b8; font-size: 18px; cursor: pointer; padding: 0 4px; flex-shrink: 0; line-height: 1; }
 .add-row-btn { background: none; border: 1px dashed #b0c4d8; border-radius: 7px; padding: 5px 12px; font-size: 12px; font-weight: 700; color: var(--primary); cursor: pointer; margin-top: 4px; }
@@ -286,7 +311,7 @@ html, body {
 .wizard-preview-panel {
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 14px; display: flex; flex-direction: column; overflow: hidden;
-  min-height: 600px;
+  min-height: 600px; min-width: 0;
 }
 .preview-panel-header {
   padding: 14px 20px; border-bottom: 1px solid var(--line);
@@ -294,6 +319,12 @@ html, body {
   background: #f8fbff;
 }
 .preview-panel-title { font-size: 13px; font-weight: 700; color: var(--text); }
+.preview-channel-tabs { display: flex; gap: 4px; }
+.preview-channel-tab {
+  border: 0; background: transparent; color: var(--muted); padding: 6px 9px;
+  border-radius: 7px; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+.preview-channel-tab.active { background: #eaf2ff; color: #1d4ed8; }
 .preview-panel-hint  { font-size: 11px; color: var(--muted); }
 .preview-panel-actions { display: flex; align-items: center; gap: 10px; }
 .edit-email-btn {
@@ -330,11 +361,39 @@ html, body {
 .preview-subject-val   { font-size: 13px; font-weight: 600; color: var(--text); }
 .preview-iframe-wrap { flex: 1; display: flex; }
 #email-preview-iframe { flex: 1; width: 100%; min-height: 500px; border: none; }
+.whatsapp-preview-content { flex: 1; padding: 24px; background: linear-gradient(145deg, #e7f0eb, #d8e8df); }
+.wa-phone-frame {
+  max-width: 390px; min-height: 500px; margin: 0 auto; overflow: hidden;
+  border: 8px solid #16362b; border-radius: 28px; background: #efeae2;
+  box-shadow: 0 20px 50px rgba(20,60,45,.2);
+}
+.wa-phone-top { padding: 17px 18px; background: #075e54; color: #fff; font-size: 13px; font-weight: 800; }
+.wa-chat-bg {
+  min-height: 430px; padding: 30px 16px; background-color: #efeae2;
+  background-image: radial-gradient(rgba(70,95,80,.08) 1px, transparent 1px);
+  background-size: 17px 17px;
+}
+.wa-template-bubble {
+  margin-left: auto; max-width: 80%; padding: 11px 12px 8px; border-radius: 11px 2px 11px 11px;
+  background: #d9fdd3; color: #20352d; font-size: 13px; line-height: 1.5;
+  box-shadow: 0 1px 2px rgba(0,0,0,.12);
+}
+.wa-template-kicker { margin-bottom: 7px; font-size: 9px; letter-spacing: .08em; color: #27855a; font-weight: 900; }
+.wa-template-time { margin-top: 9px; text-align: right; font-size: 9px; color: #6e8178; }
 
 /* ══════════════════════════════════════════════════════════════════
    LIVE DASHBOARD
 ══════════════════════════════════════════════════════════════════ */
 .live-dash { padding: 24px 28px 48px; max-width: 1440px; margin: 0 auto; }
+.channel-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: -8px 0 20px; }
+.channel-metric-block {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px;
+  background: #fff; color: var(--muted); font-size: 11px;
+}
+.channel-metric-block.email { border-left: 4px solid #2563eb; }
+.channel-metric-block.whatsapp { border-left: 4px solid #16a34a; }
+.channel-metric-title { color: var(--text); font-weight: 800; font-size: 12px; }
 
 /* Metrics funnel */
 .live-metrics-row {
@@ -483,6 +542,9 @@ html, body {
 .source-badge.dat       { background: #fef3c7; color: #d97706; }
 .source-badge.crr_model { background: #ccfbf1; color: #0d9488; }
 .source-badge.manual    { background: #f1f5f9; color: #475569; }
+.channel-badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+.channel-badge.email { background: #dbeafe; color: #1d4ed8; }
+.channel-badge.whatsapp { background: #dcfce7; color: #15803d; }
 
 .stage-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px; border-radius: 999px; font-size: 11px; font-weight: 700; }
 .stage-badge.sent      { background: #f1f5f9; color: #64748b; }
@@ -515,12 +577,16 @@ dialog::backdrop { background: rgba(0,0,0,.4); }
   .wizard-body { grid-template-columns: 380px 1fr; }
 }
 @media (max-width: 900px) {
+  .wizard-shell { padding: 18px 14px 32px; width: 100%; overflow: hidden; }
   .wizard-body { grid-template-columns: 1fr; }
   .wizard-preview-panel { min-height: 360px; }
   .live-content { grid-template-columns: 1fr; }
   .live-metrics-row { flex-wrap: wrap; }
   .lm-arrow { display: none; }
   .lm-card { border-right: none; border-bottom: 1px solid var(--line); }
+  .channel-metrics, .channel-selector { grid-template-columns: 1fr; }
+  .email-edit-input, .wz-notes, .manual-row { max-width: 100%; }
+  .wa-source-grid { grid-template-columns: 1fr; }
 }
 
 /* ── Carrier thread slide-over ────────────────────────────────────── */

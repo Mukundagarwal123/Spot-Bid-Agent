@@ -24,7 +24,11 @@ _META_API_URL = "https://graph.facebook.com/v22.0/{phone_number_id}/messages"
 # Meta sample templates (hello_world, jaspers_market_*) only work from Meta test numbers,
 # not from a real business phone number.
 # Format: {"name": "template_name_in_meta", "language": "en_US", "label": "Display name"}
-APPROVED_TEMPLATES: list[dict] = []
+try:
+    APPROVED_TEMPLATES: list[dict] = json.loads(settings.whatsapp_templates_json)
+except (TypeError, json.JSONDecodeError):
+    logger.warning("whatsapp.templates.invalid_json")
+    APPROVED_TEMPLATES = []
 
 
 class WhatsAppSendError(Exception):
@@ -53,7 +57,7 @@ def _now() -> datetime:
 
 
 def _ts(unix_str: str) -> datetime:
-    return datetime.utcfromtimestamp(int(unix_str))
+    return datetime.fromtimestamp(int(unix_str), timezone.utc).replace(tzinfo=None)
 
 
 # ── Contact / Conversation helpers ───────────────────────────────────────────
@@ -191,6 +195,16 @@ def ingest_inbound_message(db: Session, value: dict) -> None:
 
     contact = _get_or_create_contact(db, phone, display_name, wa_id)
     conv = _get_or_create_conversation(db, contact)
+    latest_campaign_message = (
+        db.query(MessagingMessage)
+        .filter(
+            MessagingMessage.conversation_id == conv.id,
+            MessagingMessage.direction == "outbound",
+            MessagingMessage.lane_id.is_not(None),
+        )
+        .order_by(MessagingMessage.created_at.desc())
+        .first()
+    )
 
     conv.unread_count = (conv.unread_count or 0) + 1
     conv.last_message_preview = body[:120]
@@ -202,6 +216,13 @@ def ingest_inbound_message(db: Session, value: dict) -> None:
         id=uuid.uuid4(),
         conversation_id=conv.id,
         contact_id=contact.id,
+        lane_id=latest_campaign_message.lane_id if latest_campaign_message else None,
+        batch_id=latest_campaign_message.batch_id if latest_campaign_message else None,
+        outreach_row_id=latest_campaign_message.outreach_row_id if latest_campaign_message else None,
+        carrier_name=(
+            latest_campaign_message.carrier_name if latest_campaign_message else display_name
+        ),
+        source_type=latest_campaign_message.source_type if latest_campaign_message else None,
         direction="inbound",
         body=body,
         provider="meta_whatsapp",
@@ -227,7 +248,10 @@ def ingest_inbound_message(db: Session, value: dict) -> None:
     logger.info("whatsapp.ingest.inbound", wamid=wamid, phone=phone, conv_id=str(conv.id))
 
     from app.services.sse_broker import whatsapp_sse
-    _iso = lambda dt: dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
+
+    def _iso(dt: datetime | None) -> str | None:
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ") if dt else None
+
     whatsapp_sse.publish({
         "type": "new_message",
         "convId": str(conv.id),
@@ -321,7 +345,17 @@ def ingest_status_update(db: Session, value: dict) -> None:
 
 # ── Outbound send ─────────────────────────────────────────────────────────────
 
-def send_message(db: Session, conversation_id: uuid.UUID, body: str) -> MessagingMessage:
+def send_message(
+    db: Session,
+    conversation_id: uuid.UUID,
+    body: str,
+    *,
+    lane_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    outreach_row_id: uuid.UUID | None = None,
+    carrier_name: str | None = None,
+    source_type: str | None = None,
+) -> MessagingMessage:
     """Send a free-form text message. Insert DB row first, then call Meta API."""
     conv = db.query(MessagingConversation).filter_by(id=conversation_id).first()
     if not conv:
@@ -336,6 +370,11 @@ def send_message(db: Session, conversation_id: uuid.UUID, body: str) -> Messagin
         id=uuid.uuid4(),
         conversation_id=conv.id,
         contact_id=contact.id,
+        lane_id=lane_id,
+        batch_id=batch_id,
+        outreach_row_id=outreach_row_id,
+        carrier_name=carrier_name or contact.display_name,
+        source_type=source_type,
         direction="outbound",
         body=body,
         provider="meta_whatsapp",
@@ -406,7 +445,18 @@ def send_message(db: Session, conversation_id: uuid.UUID, body: str) -> Messagin
     return message
 
 
-def send_template(db: Session, conversation_id: uuid.UUID, template_name: str, language: str = "en_US") -> MessagingMessage:
+def send_template(
+    db: Session,
+    conversation_id: uuid.UUID,
+    template_name: str,
+    language: str = "en_US",
+    *,
+    lane_id: uuid.UUID | None = None,
+    batch_id: uuid.UUID | None = None,
+    outreach_row_id: uuid.UUID | None = None,
+    carrier_name: str | None = None,
+    source_type: str | None = None,
+) -> MessagingMessage:
     """Send an approved template message (used when session window has expired)."""
     conv = db.query(MessagingConversation).filter_by(id=conversation_id).first()
     if not conv:
@@ -422,6 +472,11 @@ def send_template(db: Session, conversation_id: uuid.UUID, template_name: str, l
         id=uuid.uuid4(),
         conversation_id=conv.id,
         contact_id=contact.id,
+        lane_id=lane_id,
+        batch_id=batch_id,
+        outreach_row_id=outreach_row_id,
+        carrier_name=carrier_name or contact.display_name,
+        source_type=source_type,
         direction="outbound",
         body=body,
         provider="meta_whatsapp",

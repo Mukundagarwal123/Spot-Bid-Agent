@@ -127,6 +127,20 @@
               placeholder="Special requirements or context for carriers…"></textarea>
           </div>
 
+          <div class="lm-section-label" style="margin-top:18px">Campaign Channels</div>
+          <div class="channel-card-grid">
+            <div class="channel-card on" data-channel="email">
+              <div class="src-card-icon">✉</div>
+              <div class="src-card-info"><div class="src-card-name">Email</div><div class="src-card-sub">Personalized outreach</div></div>
+              <div class="src-check">✓</div>
+            </div>
+            <div class="channel-card on whatsapp" data-channel="whatsapp">
+              <div class="src-card-icon">◉</div>
+              <div class="src-card-info"><div class="src-card-name">WhatsApp</div><div class="src-card-sub">Approved template</div></div>
+              <div class="src-check">✓</div>
+            </div>
+          </div>
+
           <div class="lm-section-label" style="margin-top:18px">Carrier List</div>
           <div class="src-card-grid">
             <div class="src-card on" data-src="internal">
@@ -145,7 +159,7 @@
               </div>
               <div class="src-check">✓</div>
             </div>
-            <div class="src-card on" data-src="crr_model">
+            <div class="src-card" data-src="crr_model">
               <div class="src-card-icon">✨</div>
               <div class="src-card-info">
                 <div class="src-card-name">CRR Model</div>
@@ -153,17 +167,17 @@
               </div>
               <div class="src-check">✓</div>
             </div>
-            <div class="src-card" data-src="manual">
+            <div class="src-card on" data-src="manual">
               <div class="src-card-icon">✏️</div>
               <div class="src-card-info">
-                <div class="src-card-name">Manual Emails</div>
-                <div class="src-card-sub">Enter recipients</div>
+                <div class="src-card-name">Manual Recipients</div>
+                <div class="src-card-sub">Email and WhatsApp</div>
               </div>
               <div class="src-check">✓</div>
             </div>
           </div>
 
-          <div id="manual-emails-section" class="hidden manual-section">
+          <div id="manual-emails-section" class="manual-section">
             <div class="lm-section-label" style="margin-top:12px;margin-bottom:6px">Manual Recipients</div>
             <div id="manual-email-rows"></div>
             <button type="button" id="add-manual-row-btn" class="add-row-btn">+ Add Recipient</button>

@@ -4,19 +4,15 @@ from __future__ import annotations
 import uuid
 from datetime import date, datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-
-from app.portal.outreach.template import EmailDraft, generate
+from app.portal.outreach.template import generate
 from app.db.models import (
-    CarrierOutreachRow,
-    CarrierOutreachSet,
-    OutreachBatch,
     OutreachMessage,
-    OutreachMessageEvent,
-    OutreachReply,
+    MessagingMessage,
+    PortalLane,
 )
+from app.db import base as db_base
 
 
 # ---------------------------------------------------------------------------
@@ -165,3 +161,148 @@ class TestReplyMatcher:
 
         db.add.assert_called()
         db.commit.assert_called_once()
+
+
+def _seed_lane() -> uuid.UUID:
+    lane_id = uuid.uuid4()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    with db_base.session_scope() as db:
+        db.add(PortalLane(
+            id=lane_id,
+            origin_city="Dallas",
+            origin_state="TX",
+            origin_zip="75001",
+            destination_city="Phoenix",
+            destination_state="AZ",
+            destination_zip="85001",
+            equipment_type="dry_van",
+            pickup_date=date(2026, 6, 20),
+            status="new",
+            notes=None,
+            created_at=now,
+            updated_at=now,
+        ))
+        db.commit()
+    return lane_id
+
+
+def test_mixed_channel_preview_counts_unique_contacts(client) -> None:
+    lane_id = _seed_lane()
+    response = client.post(f"/portal/lanes/{lane_id}/outreach/preview", json={
+        "include_internal": False,
+        "include_dat": False,
+        "include_crr_model": False,
+        "send_email": True,
+        "send_whatsapp": True,
+        "whatsapp_template_name": "spot_bid",
+        "manual_emails": [{"carrier_name": "Acme", "email": "ops@acme.test"}],
+        "manual_phones": [{"carrier_name": "Acme", "phone": "+1 (805) 555-1212"}],
+    })
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["email_recipient_count"] == 1
+    assert data["whatsapp_recipient_count"] == 1
+    assert data["unique_contact_count"] == 1
+    assert data["recipient_count_by_channel"] == {"email": 1, "whatsapp": 1}
+
+
+def test_lane_creation_persists_draft_campaign_config(client) -> None:
+    response = client.post("/portal/lanes", json={
+        "origin_city": "Dallas",
+        "origin_state": "TX",
+        "origin_zip": "75001",
+        "destination_city": "Phoenix",
+        "destination_state": "AZ",
+        "destination_zip": "85001",
+        "equipment_type": "dry_van",
+        "include_internal": False,
+        "include_dat": True,
+        "include_crr_model": False,
+        "channels": ["email", "whatsapp"],
+        "whatsapp_source_types": ["dat", "manual"],
+        "manual_recipients": [{
+            "carrier_name": "Acme",
+            "email": "ops@acme.test",
+            "phone": "18055551212",
+        }],
+    })
+    assert response.status_code == 201
+    lane = client.get(f"/portal/lanes/{response.get_json()['lane_id']}").get_json()["lane"]
+    config = lane["campaign_config"]
+    assert config["channels"] == {"email": True, "whatsapp": True}
+    assert config["sources"]["manual"] is True
+    assert config["manual_recipients"][0]["phone"] == "18055551212"
+
+
+def test_mixed_send_persists_whatsapp_campaign_link(client, monkeypatch) -> None:
+    lane_id = _seed_lane()
+    monkeypatch.setattr("app.portal.outreach.sender.send_batch", lambda params: ["email-1"])
+
+    response_mock = MagicMock()
+    response_mock.raise_for_status.return_value = None
+    response_mock.json.return_value = {"messages": [{"id": "wamid.campaign.1"}]}
+    monkeypatch.setattr("app.services.whatsapp_service.requests.post", lambda *args, **kwargs: response_mock)
+
+    response = client.post(f"/portal/lanes/{lane_id}/outreach/send", json={
+        "include_internal": False,
+        "include_dat": False,
+        "include_crr_model": False,
+        "send_email": True,
+        "send_whatsapp": True,
+        "whatsapp_template_name": "spot_bid",
+        "manual_emails": [{"carrier_name": "Acme", "email": "ops@acme.test"}],
+        "manual_phones": [{"carrier_name": "Acme", "phone": "+1 805 555 1212"}],
+    })
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["email_sent_count"] == 1
+    assert data["whatsapp_sent_count"] == 1
+
+    with db_base.session_scope() as db:
+        message = db.query(MessagingMessage).filter_by(provider_message_id="wamid.campaign.1").one()
+        assert message.lane_id == lane_id
+        assert message.batch_id == uuid.UUID(data["batch_id"])
+        assert message.source_type == "manual"
+
+    metrics = client.get(f"/portal/lanes/{lane_id}/outreach").get_json()
+    assert metrics["sent"] == 2
+    assert metrics["channel_metrics"]["email"]["sent"] == 1
+    assert metrics["channel_metrics"]["whatsapp"]["sent"] == 1
+
+
+def test_manual_whatsapp_phone_requires_country_code(client) -> None:
+    lane_id = _seed_lane()
+    response = client.post(f"/portal/lanes/{lane_id}/outreach/preview", json={
+        "include_internal": False,
+        "include_dat": False,
+        "include_crr_model": False,
+        "send_email": False,
+        "send_whatsapp": True,
+        "whatsapp_template_name": "hello_world",
+        "manual_phones": [{"carrier_name": "Acme", "phone": "8057332428"}],
+    })
+    assert response.status_code == 422
+    assert "country calling code" in response.get_data(as_text=True)
+
+
+def test_all_whatsapp_failures_return_provider_error(client, monkeypatch) -> None:
+    from app.services.whatsapp_service import WhatsAppSendError
+
+    lane_id = _seed_lane()
+    monkeypatch.setattr(
+        "app.services.whatsapp_service.send_template",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            WhatsAppSendError("[131030] Recipient phone number not in allowed list")
+        ),
+    )
+    response = client.post(f"/portal/lanes/{lane_id}/outreach/send", json={
+        "include_internal": False,
+        "include_dat": False,
+        "include_crr_model": False,
+        "send_email": False,
+        "send_whatsapp": True,
+        "whatsapp_template_name": "hello_world",
+        "manual_phones": [{"carrier_name": "Acme", "phone": "+1 805 733 2428"}],
+    })
+    assert response.status_code == 502
+    assert "not in allowed list" in response.get_json()["detail"]
