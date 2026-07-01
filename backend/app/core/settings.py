@@ -29,11 +29,12 @@ class Settings(BaseSettings):
     otel_exporter_otlp_endpoint: str | None = None
     otel_exporter_otlp_headers: str | None = None
 
-    # Turvo internal DB (for covered_loads carrier recommendation)
+    # Turvo internal DB (for route-complete-shipments carrier recommendation)
     turvo_db_url: str | None = None
 
-    # Local carrier contact cache used before falling back to Turvo
-    carrier_data_csv_path: str = str(Path(__file__).resolve().parents[3] / "Carrire Data.csv")
+    # Table names on turvo_db_url used by the internal carrier recommendation source
+    route_shipments_table: str = Field(default="route_complete_shipments", validation_alias="TABLE_NAME")
+    carriers_table: str = Field(default="carriers", validation_alias="CARRIER_TABLE_NAME")
 
     # Turvo API (for carrier contact enrichment)
     turvo_api_base_url: str = "https://app.turvo.com"

@@ -12,6 +12,7 @@ from app.portal.carriers.schemas import (
 from app.portal.carriers.source_1_internal_turvo.carrier_contact_store import (
     CarrierContactRecord,
     get_carrier_contact_store,
+    normalize_carrier_key,
 )
 from app.portal.carriers.source_1_internal_turvo.db import query_covered_loads
 from app.portal.carriers.source_1_internal_turvo.turvo_client import turvo_client
@@ -56,6 +57,11 @@ def get_internal_turvo_recommendations(
         source=_SOURCE,
     )
 
+    # Resolve all carrier contacts in a single round trip instead of one query per
+    # carrier — a lane can return 100+ carriers, and per-carrier queries made this
+    # step visibly slow.
+    contacts_by_key = get_carrier_contact_store().get_many(carrier_names)
+
     results: list[CarrierResult] = []
     cache_hits = 0
     cache_misses = 0
@@ -66,7 +72,8 @@ def get_internal_turvo_recommendations(
     turvo_unavailable = 0
     persisted_rows = 0
     for rank, name in enumerate(carrier_names, start=1):
-        result, outcome = _enrich(name, rank, request_id=request_id)
+        cached = contacts_by_key.get(normalize_carrier_key(name))
+        result, outcome = _enrich(name, rank, cached, request_id=request_id)
         if outcome == "cache_hit":
             cache_hits += 1
         elif outcome == "cache_miss":
@@ -106,9 +113,9 @@ def get_internal_turvo_recommendations(
     return CarrierRecommendationResponse(request_id=request_id, query=req.model_dump(), carriers=results)
 
 
-def _enrich(carrier_name: str, rank: int, request_id: str) -> tuple[CarrierResult, str]:
-    contact_store = get_carrier_contact_store()
-    cached = contact_store.get(carrier_name)
+def _enrich(
+    carrier_name: str, rank: int, cached: CarrierContactRecord | None, request_id: str
+) -> tuple[CarrierResult, str]:
     if cached is not None:
         return (
             CarrierResult(
@@ -137,14 +144,6 @@ def _enrich(carrier_name: str, rank: int, request_id: str) -> tuple[CarrierResul
         contact = turvo_client.get_carrier_contact(carrier_name)
         has_data = bool(contact.email or contact.phone or contact.mc_number)
         if has_data:
-            contact_store.upsert(
-                CarrierContactRecord(
-                    carrier_name=carrier_name,
-                    email=contact.email,
-                    phone=contact.phone,
-                    mc_number=contact.mc_number,
-                )
-            )
             return (
                 CarrierResult(
                     carrier_name=carrier_name,

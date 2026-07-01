@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 
 from app.portal.carriers.source_1_internal_turvo.carrier_contact_store import (
-    CarrierContactRecord,
     CarrierContactStore,
+    normalize_carrier_key,
 )
 
 ENDPOINT = "/portal/carriers/recommendations/internal-turvo"
@@ -34,7 +34,7 @@ def _post(client, body, headers=None):
 
 def _empty_store_mock():
     store = MagicMock()
-    store.get.return_value = None
+    store.get_many.return_value = {}
     return store
 
 
@@ -179,14 +179,16 @@ def test_empty_covered_loads_result(mock_tc, mock_db, mock_store, client):
 @patch("app.portal.carriers.service.get_carrier_contact_store")
 @patch("app.portal.carriers.service.query_covered_loads", return_value=["Cached Carrier"])
 @patch("app.portal.carriers.service.turvo_client")
-def test_csv_cache_hit_skips_turvo(mock_tc, mock_db, mock_store, client):
+def test_contact_store_hit_skips_turvo(mock_tc, mock_db, mock_store, client):
     store = _empty_store_mock()
-    store.get.return_value = SimpleNamespace(
-        carrier_name="Cached Carrier",
-        email="cached@carrier.com",
-        phone="555-222-3333",
-        mc_number="MC-999",
-    )
+    store.get_many.return_value = {
+        normalize_carrier_key("Cached Carrier"): SimpleNamespace(
+            carrier_name="Cached Carrier",
+            email="cached@carrier.com",
+            phone="555-222-3333",
+            mc_number="MC-999",
+        )
+    }
     mock_store.return_value = store
 
     resp = _post(client, VALID_BODY)
@@ -197,52 +199,64 @@ def test_csv_cache_hit_skips_turvo(mock_tc, mock_db, mock_store, client):
     mock_tc.get_carrier_contact.assert_not_called()
 
 
-def test_csv_store_upserts_missing_carrier(tmp_path):
-    csv_path = tmp_path / "Carrire Data.csv"
-    csv_path.write_text("Account name (account/shipment),Billing email,Billing phone number,MC number\n", encoding="utf-8")
+def _mock_db_engine(rows):
+    """Build a mock SQLAlchemy engine whose `with engine.connect() as conn` yields
+    a connection that returns `rows` from `conn.execute(...).fetchall()`."""
+    conn = MagicMock()
+    conn.execute.return_value.fetchall.return_value = rows
+    conn_cm = MagicMock()
+    conn_cm.__enter__.return_value = conn
+    engine = MagicMock()
+    engine.connect.return_value = conn_cm
+    return engine
 
-    store = CarrierContactStore(csv_path)
-    assert store.get("New Carrier") is None
 
-    store.upsert(
-        CarrierContactRecord(
-            carrier_name="New Carrier",
-            email="new@carrier.com",
-            phone="555-444-5555",
-            mc_number="MC-555",
-        )
-    )
+def test_contact_store_maps_row_and_combines_country_code_with_phone():
+    from app.portal.carriers.source_1_internal_turvo import carrier_contact_store as store_mod
 
-    reloaded = CarrierContactStore(csv_path)
-    record = reloaded.get("New Carrier")
+    engine = _mock_db_engine([("ABC Logistics", "dispatch@abc.com", "+1", "5551234567", "MC-123")])
+    with patch.object(store_mod, "_get_engine", return_value=engine):
+        record = CarrierContactStore().get("abc  logistics")
+
     assert record is not None
-    assert record.email == "new@carrier.com"
-    assert record.phone == "555-444-5555"
-    assert record.mc_number == "MC-555"
+    assert record.carrier_name == "ABC Logistics"
+    assert record.email == "dispatch@abc.com"
+    assert record.phone == "+15551234567"
+    assert record.mc_number == "MC-123"
 
 
-@patch("app.portal.carriers.service.get_carrier_contact_store")
-@patch("app.portal.carriers.service.query_covered_loads", return_value=["Persisted Carrier"])
-@patch("app.portal.carriers.service.turvo_client")
-def test_csv_miss_persists_turvo_match(mock_tc, mock_db, mock_store, client, tmp_path):
-    csv_path = tmp_path / "Carrire Data.csv"
-    csv_path.write_text("Account name (account/shipment),Billing email,Billing phone number,MC number\n", encoding="utf-8")
+def test_contact_store_get_many_batches_into_one_query():
+    from app.portal.carriers.source_1_internal_turvo import carrier_contact_store as store_mod
 
-    store = CarrierContactStore(csv_path)
-    mock_store.return_value = store
-    mock_tc.get_carrier_contact.return_value = _turvo_contact(
-        email="persisted@carrier.com",
-        phone="555-666-7777",
-        mc_number="MC-777",
+    engine = _mock_db_engine(
+        [
+            ("ABC Logistics", "dispatch@abc.com", "+1", "5551234567", "MC-123"),
+            ("XYZ Freight", "ops@xyz.com", "+1", "5559876543", "MC-456"),
+        ]
     )
+    with patch.object(store_mod, "_get_engine", return_value=engine):
+        results = CarrierContactStore().get_many(["ABC Logistics", "XYZ Freight", "Unknown Co"])
 
-    resp = _post(client, VALID_BODY)
-    assert resp.status_code == 200
-    persisted = CarrierContactStore(csv_path).get("Persisted Carrier")
-    assert persisted is not None
-    assert persisted.email == "persisted@carrier.com"
-    assert persisted.phone == "555-666-7777"
-    assert persisted.mc_number == "MC-777"
+    conn = engine.connect.return_value.__enter__.return_value
+    assert conn.execute.call_count == 1  # one round trip for the whole batch
+    assert results[normalize_carrier_key("ABC Logistics")].email == "dispatch@abc.com"
+    assert results[normalize_carrier_key("XYZ Freight")].phone == "+15559876543"
+    assert normalize_carrier_key("Unknown Co") not in results
+
+
+def test_contact_store_miss_returns_none():
+    from app.portal.carriers.source_1_internal_turvo import carrier_contact_store as store_mod
+
+    engine = _mock_db_engine([])
+    with patch.object(store_mod, "_get_engine", return_value=engine):
+        assert CarrierContactStore().get("Unknown Carrier") is None
+
+
+def test_contact_store_no_engine_returns_none():
+    from app.portal.carriers.source_1_internal_turvo import carrier_contact_store as store_mod
+
+    with patch.object(store_mod, "_get_engine", return_value=None):
+        assert CarrierContactStore().get("Any Carrier") is None
 
 
 # ---------------------------------------------------------------------------

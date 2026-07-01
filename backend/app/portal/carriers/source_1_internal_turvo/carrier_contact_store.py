@@ -1,14 +1,30 @@
 from __future__ import annotations
 
-import csv
-import tempfile
-import threading
 from dataclasses import dataclass
-from pathlib import Path
+
+from sqlalchemy import bindparam, text
 
 from app.core.settings import settings
+from app.portal.carriers.source_1_internal_turvo.db import _get_engine
 
-_CSV_FIELDS = ["Account name (account/shipment)", "Billing email", "Billing phone number", "MC number"]
+_TABLE = settings.carriers_table
+
+
+def normalize_carrier_key(name: str) -> str:
+    """Case-insensitive, whitespace-collapsed key used to match free-text carrier names."""
+    return " ".join(name.strip().casefold().split())
+
+
+# Matches on normalized carrier name since route_complete_shipments.carrier_name and
+# carriers.name are free-text, not joined by id. `keys` is an expanding IN-list so a
+# whole lane's worth of carriers can be resolved in a single round trip.
+_SQL_MANY = text(
+    f"""
+    SELECT name, email, country_code, phone, mc
+    FROM public.{_TABLE}
+    WHERE lower(regexp_replace(btrim(name), '\\s+', ' ', 'g')) IN :keys
+    """
+).bindparams(bindparam("keys", expanding=True))
 
 
 @dataclass(frozen=True)
@@ -20,104 +36,29 @@ class CarrierContactRecord:
 
 
 class CarrierContactStore:
-    def __init__(self, csv_path: str | Path) -> None:
-        self._csv_path = Path(csv_path)
-        self._lock = threading.RLock()
-        self._loaded_mtime: float | None = None
-        self._records: list[CarrierContactRecord] = []
-        self._index: dict[str, int] = {}
-
-    @staticmethod
-    def _key(carrier_name: str) -> str:
-        return " ".join(carrier_name.strip().casefold().split())
-
-    @staticmethod
-    def _clean(value: object) -> str | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        return text or None
-
-    def _load_unlocked(self) -> None:
-        path = self._csv_path
-        current_mtime = path.stat().st_mtime if path.exists() else None
-        if self._loaded_mtime == current_mtime:
-            return
-
-        self._records = []
-        self._index = {}
-
-        if not path.exists():
-            self._loaded_mtime = None
-            return
-
-        with path.open("r", newline="", encoding="utf-8-sig") as handle:
-            reader = csv.DictReader(handle)
-            for row in reader:
-                carrier_name = self._clean(
-                    row.get("Account name (account/shipment)")
-                    or row.get("carrier_name")
-                    or row.get("Carrier Name")
-                )
-                if not carrier_name:
-                    continue
-                record = CarrierContactRecord(
-                    carrier_name=carrier_name,
-                    email=self._clean(row.get("Billing email") or row.get("email")),
-                    phone=self._clean(row.get("Billing phone number") or row.get("phone")),
-                    mc_number=self._clean(row.get("MC number") or row.get("mc_number") or row.get("MC Number")),
-                )
-                self._index[self._key(record.carrier_name)] = len(self._records)
-                self._records.append(record)
-
-        self._loaded_mtime = current_mtime
+    """Read-only lookup against the `carriers` table (Feature 002 contact source)."""
 
     def get(self, carrier_name: str) -> CarrierContactRecord | None:
-        with self._lock:
-            self._load_unlocked()
-            record_index = self._index.get(self._key(carrier_name))
-            if record_index is None:
-                return None
-            return self._records[record_index]
+        return self.get_many([carrier_name]).get(normalize_carrier_key(carrier_name))
 
-    def upsert(self, record: CarrierContactRecord) -> None:
-        with self._lock:
-            self._load_unlocked()
-            key = self._key(record.carrier_name)
-            existing_index = self._index.get(key)
-            if existing_index is None:
-                self._index[key] = len(self._records)
-                self._records.append(record)
-            else:
-                self._records[existing_index] = record
-            self._write_unlocked()
-
-    def _write_unlocked(self) -> None:
-        self._csv_path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            newline="",
-            encoding="utf-8",
-            dir=str(self._csv_path.parent),
-            prefix=f"{self._csv_path.stem}.",
-            suffix=".tmp",
-            delete=False,
-        ) as handle:
-            writer = csv.DictWriter(handle, fieldnames=_CSV_FIELDS)
-            writer.writeheader()
-            for record in self._records:
-                writer.writerow(
-                    {
-                        "Account name (account/shipment)": record.carrier_name,
-                        "Billing email": record.email or "",
-                        "Billing phone number": record.phone or "",
-                        "MC number": record.mc_number or "",
-                    }
-                )
-            temp_path = Path(handle.name)
-
-        temp_path.replace(self._csv_path)
-        self._loaded_mtime = self._csv_path.stat().st_mtime
+    def get_many(self, carrier_names: list[str]) -> dict[str, CarrierContactRecord]:
+        """Resolve many carrier names in a single query, keyed by normalize_carrier_key()."""
+        engine = _get_engine()
+        if engine is None or not carrier_names:
+            return {}
+        keys = list({normalize_carrier_key(n) for n in carrier_names})
+        with engine.connect() as conn:
+            rows = conn.execute(_SQL_MANY, {"keys": keys}).fetchall()
+        result: dict[str, CarrierContactRecord] = {}
+        for name, email, country_code, phone, mc in rows:
+            full_phone = f"{country_code}{phone}" if country_code and phone else phone
+            result[normalize_carrier_key(name)] = CarrierContactRecord(
+                carrier_name=name,
+                email=email,
+                phone=full_phone,
+                mc_number=mc,
+            )
+        return result
 
 
 _store: CarrierContactStore | None = None
@@ -126,5 +67,5 @@ _store: CarrierContactStore | None = None
 def get_carrier_contact_store() -> CarrierContactStore:
     global _store
     if _store is None:
-        _store = CarrierContactStore(settings.carrier_data_csv_path)
+        _store = CarrierContactStore()
     return _store

@@ -25,30 +25,35 @@ def _get_engine():
     return _engine
 
 
+_TABLE = settings.route_shipments_table
+
+# pickup_date is stored as TEXT in MM/DD/YYYY format (confirmed against production data),
+# so it must be parsed with to_date(..., 'MM/DD/YYYY') for recency ordering to be
+# chronological rather than lexicographic.
 _SQL = text(
-    """
-    SELECT carrier
-    FROM public.covered_loads
+    f"""
+    SELECT carrier_name
+    FROM public.{_TABLE}
     WHERE lower(coalesce(origin_city, '')) = lower(:origin_city)
       AND lower(coalesce(origin_state, '')) = lower(:origin_state)
       AND lower(coalesce(destination_state, '')) = lower(:destination_state)
-      AND carrier IS NOT NULL
-      AND btrim(carrier) <> ''
-    GROUP BY carrier
-    ORDER BY count(*) DESC, max(covered_date) DESC;
+      AND carrier_name IS NOT NULL
+      AND btrim(carrier_name) <> ''
+    GROUP BY carrier_name
+    ORDER BY count(*) DESC, max(to_date(nullif(pickup_date, ''), 'MM/DD/YYYY')) DESC;
     """
 )
 
 _SQL_STATE_ONLY = text(
-    """
-    SELECT carrier
-    FROM public.covered_loads
+    f"""
+    SELECT carrier_name
+    FROM public.{_TABLE}
     WHERE lower(coalesce(origin_state, '')) = lower(:origin_state)
       AND lower(coalesce(destination_state, '')) = lower(:destination_state)
-      AND carrier IS NOT NULL
-      AND btrim(carrier) <> ''
-    GROUP BY carrier
-    ORDER BY count(*) DESC, max(covered_date) DESC;
+      AND carrier_name IS NOT NULL
+      AND btrim(carrier_name) <> ''
+    GROUP BY carrier_name
+    ORDER BY count(*) DESC, max(to_date(nullif(pickup_date, ''), 'MM/DD/YYYY')) DESC;
     """
 )
 
