@@ -259,43 +259,79 @@ dialog::backdrop { background: rgba(11,30,50,.5); }
 .lm-input:focus { outline: none; border-color: #93c5fd; box-shadow: 0 0 0 3px rgba(147,197,253,.2); }
 .lm-textarea { resize: vertical; }
 
-/* Source toggle cards */
+/* Source + channel toggle cards (shared model) */
 .src-card-grid {
-  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
 }
 .src-card {
-  display: flex; align-items: center; gap: 10px;
-  border: 2px solid var(--line); border-radius: 11px;
-  padding: 10px 12px; background: #f8fbff;
-  cursor: pointer; transition: all .15s; user-select: none;
-  position: relative;
+  display: flex; align-items: center; gap: 11px;
+  border: 1.5px solid var(--line); border-radius: 12px;
+  padding: 12px 14px 12px 13px; background: #fff;
+  cursor: pointer; user-select: none; position: relative;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease, transform .12s ease;
 }
-.src-card:hover { border-color: #b3cfe8; }
+.src-card:hover { border-color: #b3cfe8; background: #fbfdff; }
+.src-card:active { transform: scale(.985); }
 .src-card.on {
-  background: #eff6ff; border-color: #1d4ed8;
+  background: #f5f9ff; border-color: #1d4ed8;
+  box-shadow: 0 0 0 1px #1d4ed8, 0 4px 14px rgba(29,78,216,.12);
 }
-.src-card-icon { font-size: 20px; flex-shrink: 0; line-height: 1; }
+.src-card-icon {
+  font-size: 17px; flex-shrink: 0; line-height: 1;
+  width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center;
+  background: #f0f4f9; transition: background .18s ease;
+}
+.src-card.on .src-card-icon { background: #e3edfe; }
 .src-card-info { flex: 1; min-width: 0; }
-.src-card-name { font-size: 12px; font-weight: 700; color: var(--text); }
-.src-card-sub  { font-size: 10px; color: var(--muted); margin-top: 1px; }
+.src-card-name { font-size: 12.5px; font-weight: 700; color: var(--text); }
+.src-card-sub  { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+/* Check badge: an empty ring by default, filled tick when selected */
 .src-check {
-  font-size: 11px; font-weight: 700; color: #1d4ed8;
-  width: 18px; height: 18px; border-radius: 50%;
-  background: #1d4ed8; color: #fff;
-  display: grid; place-items: center; flex-shrink: 0;
-  opacity: 0; transition: opacity .15s;
+  font-size: 0; color: transparent;
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid #d3dde6;
+  background: #fff; flex-shrink: 0;
+  display: grid; place-items: center;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
 }
-.src-card.on .src-check { opacity: 1; }
-.channel-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.src-card.on .src-check {
+  font-size: 11px; font-weight: 800; color: #fff;
+  background: #1d4ed8; border-color: #1d4ed8;
+  transform: scale(1);
+}
+.src-card.on .src-check { animation: check-pop .22s ease; }
+@keyframes check-pop {
+  0% { transform: scale(.4); } 60% { transform: scale(1.12); } 100% { transform: scale(1); }
+}
+
+.channel-card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .channel-card {
-  display: flex; align-items: center; gap: 9px; padding: 10px 11px;
-  border: 1.5px solid var(--line); border-radius: 9px; background: #fff;
-  cursor: pointer; transition: border-color .15s, background .15s;
+  display: flex; align-items: center; gap: 11px; padding: 12px 14px 12px 13px;
+  border: 1.5px solid var(--line); border-radius: 12px; background: #fff;
+  cursor: pointer; user-select: none; position: relative;
+  transition: border-color .18s ease, box-shadow .18s ease, background .18s ease, transform .12s ease;
 }
-.channel-card.on { border-color: #93c5fd; background: #eff6ff; }
-.channel-card.whatsapp.on { border-color: #86efac; background: #f0fdf4; }
-.channel-card .src-check { opacity: 0; color: #2563eb; font-weight: 800; }
-.channel-card.on .src-check { opacity: 1; }
+.channel-card:hover { border-color: #b3cfe8; background: #fbfdff; }
+.channel-card:active { transform: scale(.985); }
+.channel-card .src-card-icon { color: #1d4ed8; }
+.channel-card.whatsapp .src-card-icon { color: #15803d; }
+.channel-card.on {
+  border-color: #1d4ed8; background: #f5f9ff;
+  box-shadow: 0 0 0 1px #1d4ed8, 0 4px 14px rgba(29,78,216,.12);
+}
+.channel-card.on .src-card-icon { background: #e3edfe; }
+/* Reveal the filled check badge when a channel card is selected */
+.channel-card.on .src-check {
+  font-size: 11px; font-weight: 800; color: #fff;
+  background: #1d4ed8; border-color: #1d4ed8;
+  animation: check-pop .22s ease;
+}
+.channel-card.whatsapp.on {
+  border-color: #16a34a; background: #f2fdf5;
+  box-shadow: 0 0 0 1px #16a34a, 0 4px 14px rgba(22,163,74,.13);
+}
+.channel-card.whatsapp.on .src-card-icon { background: #d9f5e3; }
+.channel-card.whatsapp.on .src-check { background: #16a34a; border-color: #16a34a; }
 
 /* Manual recipients section */
 .manual-section {

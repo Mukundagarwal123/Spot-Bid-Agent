@@ -4,6 +4,9 @@ const STAGES     = ["Build", "Preview", "Send", "Live", "Complete"];
 const EQUIP_LABELS = { dry_van: "Dry Van", reefer: "Reefer", flatbed: "Flatbed", power_only: "Power Only", other: "Other" };
 const SRC_LABEL    = { internal: "Internal", dat: "DAT", crr_model: "CRR Model", manual: "Manual Emails" };
 const SRC_KEYS     = ["internal", "dat", "crr_model", "manual"];
+/* WhatsApp can only be sent to these sources (never CRR Model). */
+const WA_ELIGIBLE_SOURCES = ["internal", "dat", "manual"];
+const WA_SOURCE_LABEL     = { internal: "Internal", dat: "DAT", manual: "Manual" };
 const POLL_MS      = 5000;
 
 /* ── State ────────────────────────────────────────────────────────── */
@@ -148,6 +151,17 @@ function renderSourceSummary() {
     .join("");
   const el = document.getElementById("src-summary");
   if (el) el.innerHTML = chips || `<span class="src-summary-none">No sources selected — go back and add a lane.</span>`;
+
+  // Read-only reminder of which channels this campaign uses (set in the modal).
+  const chEl = document.getElementById("wz-channel-summary");
+  if (chEl) {
+    const parts = [];
+    if (state.channels.email)    parts.push(`<span class="wz-chan-chip email">✉ Email</span>`);
+    if (state.channels.whatsapp) parts.push(`<span class="wz-chan-chip whatsapp">◉ WhatsApp</span>`);
+    chEl.innerHTML = parts.length
+      ? `<span class="wz-chan-lead">Sending via</span>${parts.join("")}`
+      : "";
+  }
   // Show/hide internal filter toggle based on whether internal source is selected
   document.getElementById("internal-filter-section")?.classList.toggle("hidden", !state.sources.internal);
   document.getElementById("manual-emails-section")?.classList.toggle("hidden", !state.sources.manual);
@@ -202,35 +216,71 @@ function campaignPayload() {
   };
 }
 
+/* Render the WhatsApp "send to" checkboxes — only for eligible sources
+   (internal / DAT / manual) that the user actually selected. */
+function renderWhatsAppSources() {
+  const grid = document.getElementById("wa-source-grid");
+  if (!grid) return;
+  const eligible = WA_ELIGIBLE_SOURCES.filter(k => state.sources[k]);
+  if (!eligible.length) {
+    grid.innerHTML = `<div class="wa-source-empty">No WhatsApp-eligible sources selected. Pick Internal, DAT, or add manual numbers.</div>`;
+    return;
+  }
+  // Keep only selections that are still eligible + selected.
+  state.whatsappSources = eligible.filter(k => state.whatsappSources.includes(k));
+  if (!state.whatsappSources.length) state.whatsappSources = [...eligible];
+  grid.innerHTML = eligible.map(k => {
+    const checked = state.whatsappSources.includes(k) ? "checked" : "";
+    return `<label class="wa-source-chip"><input type="checkbox" data-wa-source="${k}" ${checked} /><span>${WA_SOURCE_LABEL[k]}</span></label>`;
+  }).join("");
+  grid.querySelectorAll("[data-wa-source]").forEach(input =>
+    input.addEventListener("change", () => { state.whatsappSources = selectedWhatsAppSources(); })
+  );
+}
+
+/* Show preview tabs only for the channels that are enabled; when a single
+   channel is selected, hide the other tab and default to the active one. */
+function updatePreviewChannelTabs() {
+  const tabs = document.querySelector(".preview-channel-tabs");
+  const emailTab = document.querySelector('.preview-channel-tab[data-preview-channel="email"]');
+  const waTab    = document.querySelector('.preview-channel-tab[data-preview-channel="whatsapp"]');
+  if (!emailTab || !waTab) return;
+  const emailOn = state.channels.email;
+  const waOn    = state.channels.whatsapp;
+  emailTab.classList.toggle("hidden", !emailOn);
+  waTab.classList.toggle("hidden", !waOn);
+  // Only one visible tab → collapse the pill styling into a plain label.
+  tabs?.classList.toggle("single", (emailOn ? 1 : 0) + (waOn ? 1 : 0) === 1);
+  // If the currently-active tab is now hidden, switch to an available one.
+  const activeTab = document.querySelector(".preview-channel-tab.active:not(.hidden)");
+  if (!activeTab) showPreviewChannel(emailOn ? "email" : "whatsapp");
+}
+
+function showPreviewChannel(channel) {
+  document.querySelectorAll(".preview-channel-tab").forEach(item =>
+    item.classList.toggle("active", item.dataset.previewChannel === channel));
+  const showWhatsApp = channel === "whatsapp";
+  document.getElementById("email-preview-content")?.classList.toggle("hidden", showWhatsApp);
+  document.getElementById("whatsapp-preview-content")?.classList.toggle("hidden", !showWhatsApp);
+  // Edit-email only makes sense on the email tab.
+  document.getElementById("edit-email-btn")?.classList.toggle("hidden", showWhatsApp);
+}
+
 async function initCampaignChannels() {
-  const email = document.getElementById("channel-email");
-  const whatsapp = document.getElementById("channel-whatsapp");
-  email.checked = state.channels.email;
-  whatsapp.checked = state.channels.whatsapp;
-
-  const sync = () => {
-    state.channels.email = email.checked;
-    state.channels.whatsapp = whatsapp.checked;
-    document.getElementById("channel-email-option")?.classList.toggle("on", email.checked);
-    document.getElementById("channel-whatsapp-option")?.classList.toggle("on", whatsapp.checked);
-    document.getElementById("whatsapp-config")?.classList.toggle("hidden", !whatsapp.checked);
-  };
-  email.addEventListener("change", sync);
-  whatsapp.addEventListener("change", sync);
-
-  document.querySelectorAll("[data-wa-source]").forEach(input => {
-    input.checked = state.whatsappSources.includes(input.dataset.waSource);
-  });
+  // Channels are chosen in the New Campaign modal — the wizard just honours them.
+  document.getElementById("whatsapp-section")?.classList.toggle("hidden", !state.channels.whatsapp);
+  updatePreviewChannelTabs();
+  renderWhatsAppSources();
 
   const select = document.getElementById("whatsapp-template");
   try {
     const result = await api("/api/whatsapp/templates");
     state.whatsappTemplates = result.templates || [];
     select.innerHTML = state.whatsappTemplates.length
-      ? `<option value="">Select an approved template…</option>${state.whatsappTemplates.map(template =>
+      ? `<option value="" disabled selected>Select an approved template…</option>${state.whatsappTemplates.map(template =>
           `<option value="${template.name}" data-language="${template.language || "en_US"}">${template.label || template.name}</option>`
         ).join("")}`
-      : `<option value="">No approved templates configured</option>`;
+      : `<option value="" disabled selected>No approved templates configured</option>`;
     const threadSelect = document.getElementById("thread-template-select");
     if (threadSelect) {
       threadSelect.innerHTML = `<option value="">Use free-form reply (24-hour window)</option>${state.whatsappTemplates.map(template =>
@@ -238,13 +288,15 @@ async function initCampaignChannels() {
       ).join("")}`;
     }
   } catch (_) {
-    select.innerHTML = `<option value="">Templates unavailable</option>`;
+    select.innerHTML = `<option value="" disabled selected>Templates unavailable</option>`;
   }
 
   select.addEventListener("change", () => {
     const selected = state.whatsappTemplates.find(template => template.name === select.value);
     document.getElementById("wa-template-preview-text").textContent =
       selected?.preview || selected?.label || (select.value ? `Template: ${select.value}` : "Choose an approved template to preview the campaign message.");
+    // Clear the step-1 template error the moment a valid template is picked.
+    if (select.value) document.getElementById("wizard-step1-error")?.classList.add("hidden");
     if (state.previewData) {
       const sendBtn = document.getElementById("launch-campaign-btn");
       const whatsappCount = state.previewData.whatsapp_recipient_count || 0;
@@ -254,15 +306,8 @@ async function initCampaignChannels() {
   });
 
   document.querySelectorAll(".preview-channel-tab").forEach(tab => {
-    tab.addEventListener("click", () => {
-      document.querySelectorAll(".preview-channel-tab").forEach(item => item.classList.remove("active"));
-      tab.classList.add("active");
-      const showWhatsApp = tab.dataset.previewChannel === "whatsapp";
-      document.getElementById("email-preview-content").classList.toggle("hidden", showWhatsApp);
-      document.getElementById("whatsapp-preview-content").classList.toggle("hidden", !showWhatsApp);
-    });
+    tab.addEventListener("click", () => showPreviewChannel(tab.dataset.previewChannel));
   });
-  sync();
 }
 
 /* ── 3-step wizard navigation ─────────────────────────────────────── */
@@ -409,6 +454,16 @@ async function onCheckCarriers() {
     errEl.textContent = "Select at least one campaign channel.";
     errEl.classList.remove("hidden");
     return;
+  }
+  // Validate the WhatsApp template here — before advancing — not on the next step.
+  if (state.channels.whatsapp) {
+    const tpl = document.getElementById("whatsapp-template")?.value;
+    if (!tpl) {
+      errEl.textContent = "Select an approved WhatsApp template before continuing.";
+      errEl.classList.remove("hidden");
+      document.getElementById("whatsapp-template")?.focus();
+      return;
+    }
   }
 
   state.notes = document.getElementById("launch-notes").value || "";
@@ -614,41 +669,90 @@ async function onLaunchCampaign() {
   }
 }
 
-/* ── Live metrics ─────────────────────────────────────────────────── */
-function renderLiveMetrics(m, prev) {
-  const fields = [
-    ["lm-num-sent",      m.sent,      null,              null],
-    ["lm-num-delivered", m.delivered, "lm-sub-delivered", `${pct(m.delivered, m.sent)} of sent`],
-    ["lm-num-opened",    m.opened,    "lm-sub-opened",    `${pct(m.opened, m.sent)} of sent`],
-    ["lm-num-replied",   m.replied,   "lm-sub-replied",   `${pct(m.replied, m.sent)} of sent`],
-    ["lm-num-bounced",   m.bounced ?? 0, null,            null],
+/* ── Live metrics (bifurcated by channel) ─────────────────────────── */
+const CHANNEL_META = {
+  email:    { label: "Email",    icon: "✉", openLabel: "Opened", lastLabel: "Bounced", lastKey: "bounced", accent: "email" },
+  whatsapp: { label: "WhatsApp", icon: "◉", openLabel: "Read",   lastLabel: "Failed",  lastKey: "failed",  accent: "whatsapp" },
+};
+
+/* Which channels to render funnels for: any channel that has actually sent,
+   else fall back to the configured selection. */
+function activeChannels(m) {
+  const list = [];
+  if ((m?.channel_metrics?.email?.sent || 0) > 0)    list.push("email");
+  if ((m?.channel_metrics?.whatsapp?.sent || 0) > 0) list.push("whatsapp");
+  if (list.length) return list;
+  if (state.channels.email)    list.push("email");
+  if (state.channels.whatsapp) list.push("whatsapp");
+  return list.length ? list : ["email"];
+}
+
+function _funnelSkeleton(ch) {
+  const meta = CHANNEL_META[ch];
+  const stages = [
+    { key: "sent",      label: "Sent",           cls: "blue"  },
+    { key: "delivered", label: "Delivered",      cls: "green" },
+    { key: "opened",    label: meta.openLabel,   cls: "amber" },
+    { key: "replied",   label: "Replied",        cls: "teal"  },
+    { key: meta.lastKey, label: meta.lastLabel,  cls: "red", last: true },
   ];
-  const cards    = ["lm-sent", "lm-delivered", "lm-opened", "lm-replied", "lm-bounced"];
-  const prevVals = prev ? [prev.sent, prev.delivered, prev.opened, prev.replied, prev.bounced ?? 0] : null;
+  const cells = stages.map((s, i) => `
+    ${i > 0 ? '<div class="lm-arrow">›</div>' : ""}
+    <div class="lm-card" id="mf-${ch}-card-${s.key}">
+      <div class="lm-num ${s.cls}" id="mf-${ch}-${s.key}">—</div>
+      ${s.last ? "" : `<div class="lm-sub" id="mf-${ch}-sub-${s.key}"></div>`}
+      <div class="lm-label">${s.label}</div>
+    </div>`).join("");
+  return `
+    <div class="mf-funnel ${meta.accent}">
+      <div class="mf-head">
+        <span class="mf-chan-icon">${meta.icon}</span>
+        <span class="mf-chan-name">${meta.label}</span>
+        <span class="mf-chan-total" id="mf-${ch}-total">0 sent</span>
+      </div>
+      <div class="live-metrics-row">${cells}</div>
+    </div>`;
+}
 
-  fields.forEach(([id, val, subId, subText], i) => {
-    const numEl = document.getElementById(id);
-    if (numEl) numEl.textContent = val ?? "—";
-    if (subId) {
-      const el = document.getElementById(subId);
-      if (el) el.textContent = subText;
-    }
-    if (prevVals && prevVals[i] !== val) {
-      const card = document.getElementById(cards[i]);
-      if (card) { card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash"); }
-    }
+let _funnelsKey = null;
+function renderLiveMetrics(m, prev) {
+  const channels = activeChannels(m);
+  const key = channels.join(",");
+  const wrap = document.getElementById("live-metrics");
+  if (wrap && _funnelsKey !== key) {
+    wrap.innerHTML = channels.map(_funnelSkeleton).join("");
+    wrap.classList.toggle("multi", channels.length > 1);
+    _funnelsKey = key;
+  }
+
+  channels.forEach(ch => {
+    const cm   = m.channel_metrics?.[ch] || {};
+    const pcm  = prev?.channel_metrics?.[ch] || null;
+    const meta = CHANNEL_META[ch];
+    const sent = cm.sent || 0;
+    const vals = {
+      sent, delivered: cm.delivered || 0, opened: cm.opened || 0,
+      replied: cm.replied || 0, [meta.lastKey]: cm[meta.lastKey] || 0,
+    };
+    const subs = {
+      delivered: `${pct(vals.delivered, sent)} of sent`,
+      opened:    `${pct(vals.opened, sent)} of sent`,
+      replied:   `${pct(vals.replied, sent)} of sent`,
+    };
+    const totalEl = document.getElementById(`mf-${ch}-total`);
+    if (totalEl) totalEl.textContent = `${sent} sent`;
+
+    Object.entries(vals).forEach(([k, v]) => {
+      const numEl = document.getElementById(`mf-${ch}-${k}`);
+      if (numEl) numEl.textContent = v;
+      const subEl = document.getElementById(`mf-${ch}-sub-${k}`);
+      if (subEl && subs[k] != null) subEl.textContent = subs[k];
+      if (pcm && (pcm[k] || 0) !== v) {
+        const card = document.getElementById(`mf-${ch}-card-${k}`);
+        if (card) { card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash"); }
+      }
+    });
   });
-
-  const email = m.channel_metrics?.email || {};
-  const whatsapp = m.channel_metrics?.whatsapp || {};
-  const emailEl = document.getElementById("email-channel-metrics");
-  const whatsappEl = document.getElementById("whatsapp-channel-metrics");
-  if (emailEl) {
-    emailEl.textContent = `${email.sent || 0} sent · ${email.delivered || 0} delivered · ${email.opened || 0} opened · ${email.replied || 0} replied`;
-  }
-  if (whatsappEl) {
-    whatsappEl.textContent = `${whatsapp.sent || 0} sent · ${whatsapp.delivered || 0} delivered · ${whatsapp.opened || 0} read · ${whatsapp.replied || 0} replied`;
-  }
 }
 
 /* ── Activity log ─────────────────────────────────────────────────── */
@@ -677,7 +781,54 @@ const STAGE_ICONS = { replied: "💬", opened: "👁", clicked: "🔗", delivere
 
 function renderRecipientTable(responses) {
   state.allResponses = responses;
+  renderHotLeads(responses);
   applyFilters();
+}
+
+/* ── Hot Leads: carriers who replied — the broker's call-now list ──── */
+function renderHotLeads(responses) {
+  const list    = document.getElementById("hot-leads-list");
+  const countEl = document.getElementById("hot-leads-count");
+  if (!list) return;
+  const leads = (responses || [])
+    .filter(r => r.status === "replied")
+    .sort((a, b) => (b.last_event_at || "").localeCompare(a.last_event_at || ""));
+  if (countEl) countEl.textContent = leads.length;
+
+  if (!leads.length) {
+    list.innerHTML = `<div class="hl-empty">Carriers who reply will surface here first — call them before they take another load.</div>`;
+    return;
+  }
+
+  list.innerHTML = leads.map(r => {
+    const channel   = r.channel || "email";
+    const src       = (r.source_type || "internal").toLowerCase();
+    const safeEmail = (r.email || "").replace(/"/g, "&quot;");
+    const safePhone = (r.phone || "").replace(/"/g, "&quot;");
+    const safeName  = (r.carrier_name || "").replace(/"/g, "&quot;");
+    const contact   = channel === "whatsapp" ? (r.phone || "") : (r.email || "");
+    const snippet   = (r.reply_snippet || "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    return `<div class="hl-row" data-email="${safeEmail}" data-phone="${safePhone}" data-channel="${channel}" data-carrier="${safeName}">
+      <div class="hl-top">
+        <span class="hl-name">${r.carrier_name || contact || "—"}</span>
+        <span class="channel-badge ${channel}">${channel === "whatsapp" ? "◉" : "✉"}</span>
+      </div>
+      ${snippet ? `<div class="hl-snippet">"${snippet}"</div>` : `<div class="hl-snippet muted">Replied — open the thread to read.</div>`}
+      <div class="hl-meta">
+        <span class="source-badge ${src}">${r.source || src}</span>
+        <span class="hl-time">${fmtDT(r.last_event_at)}</span>
+      </div>
+    </div>`;
+  }).join("");
+
+  list.querySelectorAll(".hl-row").forEach(row => {
+    row.addEventListener("click", () => openCarrierThread({
+      email: row.dataset.email,
+      phone: row.dataset.phone,
+      channel: row.dataset.channel,
+      carrierName: row.dataset.carrier,
+    }));
+  });
 }
 
 function applyFilters() {
